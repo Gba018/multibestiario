@@ -50,6 +50,8 @@ body {
 .cloud-auth-card input { width: 100%; padding: 11px 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .cloud-auth-card .btn { width: 100%; justify-content: center; margin-top: 8px; }
 .cloud-auth-card #cloudAuthRegister { margin-top: 12px; }
+.public-view .header-inner > div:last-child,
+.public-view #btnMenu { display: none; }
 
 .container {
   max-width: 640px;

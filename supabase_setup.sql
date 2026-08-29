@@ -46,3 +46,38 @@ create policy "Users can insert their own profile"
 drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
   on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
+
+create table if not exists public.public_shares (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  entity_type text not null check (entity_type in ('list', 'folder')),
+  entity_id text not null,
+  share_token text not null unique,
+  snapshot jsonb not null,
+  is_public boolean not null default false,
+  updated_at timestamptz not null default now(),
+  unique (owner_id, entity_type, entity_id)
+);
+
+alter table public.public_shares enable row level security;
+
+drop policy if exists "Anyone can read public shares" on public.public_shares;
+create policy "Anyone can read public shares"
+  on public.public_shares for select
+  using (is_public = true or auth.uid() = owner_id);
+
+drop policy if exists "Users can create their own shares" on public.public_shares;
+create policy "Users can create their own shares"
+  on public.public_shares for insert
+  with check (auth.uid() = owner_id);
+
+drop policy if exists "Users can update their own shares" on public.public_shares;
+create policy "Users can update their own shares"
+  on public.public_shares for update
+  using (auth.uid() = owner_id)
+  with check (auth.uid() = owner_id);
+
+drop policy if exists "Users can delete their own shares" on public.public_shares;
+create policy "Users can delete their own shares"
+  on public.public_shares for delete
+  using (auth.uid() = owner_id);

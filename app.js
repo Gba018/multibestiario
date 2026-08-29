@@ -8,6 +8,7 @@ var cloudUser = null;
 var cloudSyncTimer = null;
 var cloudSyncReady = false;
 var cloudSyncInProgress = false;
+var isPublicView = false;
 
 /* ===== STATE ===== */
 var data = JSON.parse(localStorage.getItem('multibestiario_v3')) || { series: [], allTags: [], folders: [] };
@@ -41,6 +42,8 @@ var API_PRESETS = {
 // Las listas son extensibles: cada una mantiene su propia configuración de campos.
 data.series.forEach(function(s) {
   if (!s.fields) s.fields = [];
+  if (!s.tags) s.tags = [];
+  if (!s.characters) s.characters = [];
   (s.characters || []).forEach(function(c) {
     if (!c.values) c.values = {};
     if (!c.images) c.images = c.image ? [c.image] : [];
@@ -123,6 +126,63 @@ async function saveDataToCloud() {
   var result = await supabaseClient.from('user_data').upsert({ user_id: cloudUser.id, data: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
   cloudSyncInProgress = false;
   if (result.error) console.error('No se pudo sincronizar con Supabase:', result.error.message);
+  if (!result.error) {
+    var shares = await supabaseClient.from('public_shares').select('id,entity_type,entity_id').eq('owner_id', cloudUser.id).eq('is_public', true);
+    if (!shares.error && shares.data) shares.data.forEach(function(share) {
+      var snapshot = publicSnapshot(share.entity_type, share.entity_id);
+      if (snapshot) supabaseClient.from('public_shares').update({ snapshot: snapshot, updated_at: new Date().toISOString() }).eq('id', share.id);
+    });
+  }
+}
+
+function publicSnapshot(type, id) {
+  if (type === 'list') {
+    var list = data.series.find(function(item) { return item.id === id; });
+    if (!list) return null;
+    list = JSON.parse(JSON.stringify(list));
+    list.folderId = null;
+    return { series: [list], folders: [], allTags: list.tags || [] };
+  }
+  var folderIds = [id];
+  data.folders.forEach(function(folder) { if (isDescendantOf(folder.id, id)) folderIds.push(folder.id); });
+  return { series: data.series.filter(function(list) { return folderIds.indexOf(list.folderId) !== -1; }).map(function(list) { var copy = JSON.parse(JSON.stringify(list)); copy.folderId = null; return copy; }), folders: [], allTags: [] };
+}
+
+async function togglePublicShare(type, id) {
+  if (!cloudUser || !supabaseClient) return alert('Inicia sesión para publicar contenido.');
+  var existing = await supabaseClient.from('public_shares').select('id,share_token,is_public').eq('owner_id', cloudUser.id).eq('entity_type', type).eq('entity_id', id).maybeSingle();
+  if (existing.error) return alert('Primero ejecuta el SQL de publicación en Supabase.');
+  if (existing.data && existing.data.is_public) {
+    await supabaseClient.from('public_shares').update({ is_public: false }).eq('id', existing.data.id);
+    alert('Contenido retirado de publicación.');
+    return;
+  }
+  var snapshot = publicSnapshot(type, id);
+  if (!snapshot) return;
+  var token = existing.data ? existing.data.share_token : generateId() + generateId();
+  var payload = { owner_id: cloudUser.id, entity_type: type, entity_id: id, share_token: token, snapshot: snapshot, is_public: true, updated_at: new Date().toISOString() };
+  if (existing.data) payload.id = existing.data.id;
+  var result = await supabaseClient.from('public_shares').upsert(payload, { onConflict: 'owner_id,entity_type,entity_id' });
+  if (result.error) return alert('No se pudo publicar: ' + result.error.message);
+  var shareUrl = window.location.origin + window.location.pathname + '?public=' + encodeURIComponent(token);
+  if (navigator.clipboard) navigator.clipboard.writeText(shareUrl).catch(function() {});
+  prompt('Enlace público (también se copió si el navegador lo permite):', shareUrl);
+}
+
+async function loadPublicShare() {
+  var token = new URLSearchParams(window.location.search).get('public');
+  if (!token || !supabaseClient) return false;
+  var result = await supabaseClient.from('public_shares').select('snapshot').eq('share_token', token).eq('is_public', true).maybeSingle();
+  if (result.error || !result.data) return false;
+  data = result.data.snapshot;
+  if (!data.folders) data.folders = [];
+  if (!data.allTags) data.allTags = [];
+  (data.series || []).forEach(function(list) { if (!list.tags) list.tags = []; if (!list.fields) list.fields = []; if (!list.characters) list.characters = []; });
+  isPublicView = true;
+  document.body.classList.add('public-view');
+  hideCloudAuth();
+  renderHome();
+  return true;
 }
 
 async function loadDataFromCloud(user) {
@@ -132,8 +192,10 @@ async function loadDataFromCloud(user) {
     data = result.data.data;
     if (!data.folders) data.folders = [];
     if (!data.allTags) data.allTags = [];
-    data.series.forEach(function(list) {
+    (data.series || []).forEach(function(list) {
       if (!list.fields) list.fields = [];
+      if (!list.tags) list.tags = [];
+      if (!list.characters) list.characters = [];
       (list.characters || []).forEach(function(item) {
         if (!item.values) item.values = {};
         if (!item.images) item.images = item.image ? [item.image] : [];
@@ -200,7 +262,7 @@ function initCloudSync() {
     var result = await supabaseClient.auth.signUp({ email: email, password: password, options: signupOptions });
     if (result.error) {
       console.error('Supabase registro:', result.error);
-      message.textContent = result.error.status === 401 ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.' : 'No se pudo crear la cuenta: ' + result.error.message;
+      message.textContent = result.error.status === 429 ? 'Supabase alcanzó el límite de correos. Espera unos minutos y revisa tu bandeja antes de volver a registrarte.' : result.error.status === 401 ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.' : 'No se pudo crear la cuenta: ' + result.error.message;
     } else if (result.data.session) {
       await connectCloudUser(result.data.user);
     } else {
@@ -208,8 +270,19 @@ function initCloudSync() {
     }
   });
   document.getElementById('cloudAuthContinue').addEventListener('click', hideCloudAuth);
-  supabaseClient.auth.getSession().then(function(result) {
-    if (result.data.session) connectCloudUser(result.data.session.user);
+  supabaseClient.auth.onAuthStateChange(function(event, session) {
+    if (event === 'SIGNED_IN' && session && !cloudUser) connectCloudUser(session.user);
+  });
+  var hashParams = new URLSearchParams(window.location.hash.substring(1));
+  if (hashParams.get('error')) {
+    var hashError = hashParams.get('error_description') || hashParams.get('error');
+    document.getElementById('cloudAuthMessage').textContent = 'No se pudo confirmar el correo: ' + hashError.replace(/\+/g, ' ');
+  }
+  loadPublicShare().then(function(isLoaded) {
+    if (isLoaded) return;
+    supabaseClient.auth.getSession().then(function(result) {
+      if (result.data.session) connectCloudUser(result.data.session.user);
+    });
   });
 }
 
@@ -633,6 +706,7 @@ function renderHome() {
     html += '<div class="folder-badge">&#128193; Carpeta</div>';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-folder" data-fid="' + f.id + '">&#9998;</div>';
+    html += '<div class="series-tile-action" data-action="public-folder" data-fid="' + f.id + '" title="Publicar carpeta">&#128279;</div>';
     html += '<div class="series-tile-action" data-action="move-folder" data-fid="' + f.id + '">&#8644;</div>';
     html += '<div class="series-tile-action" data-action="del-folder" data-fid="' + f.id + '">&#128465;</div>';
     html += '</div>';
@@ -658,6 +732,7 @@ function renderHome() {
     html += '<img src="' + (cover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3Ctext%20x%3D%22150%22%20y%3D%22200%22%20text-anchor%3D%22middle%22%20fill%3D%22%23666%22%20font-size%3D%2216%22%3ESin%20portada%3C%2Ftext%3E%3C%2Fsvg%3E') + '" class="series-tile-cover" alt="' + esc(s.name) + '">';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-series" data-sid="' + s.id + '">&#9998;</div>';
+    html += '<div class="series-tile-action" data-action="public-series" data-sid="' + s.id + '" title="Publicar lista">&#128279;</div>';
     html += '<div class="series-tile-action" data-action="edit-stags" data-sid="' + s.id + '">&#127991;</div>';
     html += '<div class="series-tile-action" data-action="move-series" data-sid="' + s.id + '">&#8644;</div>';
     html += '<div class="series-tile-action" data-action="del-series" data-sid="' + s.id + '">&#128465;</div>';
@@ -698,11 +773,13 @@ function renderHome() {
       e.stopPropagation();
       var action = this.dataset.action;
       if (action === 'edit-folder') renameFolder(this.dataset.fid);
+      else if (action === 'public-folder') togglePublicShare('folder', this.dataset.fid);
       else if (action === 'del-folder') deleteFolder(this.dataset.fid);
       else if (action === 'move-folder') openMoveFolderModal(this.dataset.fid);
       else {
         var sid = this.dataset.sid;
         if (action === 'edit-series') openEditSeriesModal(sid);
+        else if (action === 'public-series') togglePublicShare('list', sid);
         else if (action === 'edit-stags') editSeriesTags(sid);
         else if (action === 'move-series') openMoveSeriesModal(sid);
         else if (action === 'del-series') {
