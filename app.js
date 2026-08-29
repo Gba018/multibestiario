@@ -11,8 +11,9 @@ var cloudSyncInProgress = false;
 var isPublicView = false;
 
 /* ===== STATE ===== */
-var data = JSON.parse(localStorage.getItem('multibestiario_v3')) || { series: [], allTags: [], folders: [] };
+var data = JSON.parse(localStorage.getItem('multibestiario_v3')) || { series: [], allTags: [], folders: [], apiConfigs: {} };
 if (!data.folders) data.folders = [];
+if (!data.apiConfigs) data.apiConfigs = {};
 var pokeCache = JSON.parse(localStorage.getItem('pokeCache')) || {};
 var currentModal = null;
 var currentSeriesId = null;
@@ -27,6 +28,7 @@ var isImporting = false;
 var homeFiltersExpanded = false;
 var apiPreviewData = null;
 var apiImporting = false;
+var apiConfigRestored = false;
 var styleEditorSelected = 0;
 var styleEditorSelectionType = 'block';
 var styleEditorDragging = null;
@@ -177,6 +179,7 @@ async function loadPublicShare() {
   data = result.data.snapshot;
   if (!data.folders) data.folders = [];
   if (!data.allTags) data.allTags = [];
+  if (!data.apiConfigs) data.apiConfigs = {};
   (data.series || []).forEach(function(list) { if (!list.tags) list.tags = []; if (!list.fields) list.fields = []; if (!list.characters) list.characters = []; });
   isPublicView = true;
   document.body.classList.add('public-view');
@@ -192,6 +195,7 @@ async function loadDataFromCloud(user) {
     data = result.data.data;
     if (!data.folders) data.folders = [];
     if (!data.allTags) data.allTags = [];
+    if (!data.apiConfigs) data.apiConfigs = {};
     (data.series || []).forEach(function(list) {
       if (!list.fields) list.fields = [];
       if (!list.tags) list.tags = [];
@@ -1493,6 +1497,46 @@ function applyApiAutoConfig(sample) {
   document.getElementById('apiMappings').innerHTML = config.mappings.map(apiMappingRow).join('');
 }
 
+function apiConfigKey(preset, url) {
+  return preset ? 'preset:' + preset : 'url:' + (url || '').trim();
+}
+
+function restoreApiConfig(preset, url) {
+  var saved = data.apiConfigs[apiConfigKey(preset, url)];
+  if (!saved) return false;
+  document.getElementById('apiUrl').value = saved.url || url || '';
+  document.getElementById('apiCollectionPath').value = saved.collection || '';
+  document.getElementById('apiNamePath').value = saved.name || 'name';
+  document.getElementById('apiImagePath').value = saved.image || '';
+  document.getElementById('apiTagsPath').value = saved.tags || '';
+  document.getElementById('apiFetchDetails').checked = !!saved.fetchDetails;
+  document.getElementById('apiUploadImages').checked = saved.uploadImages !== false;
+  document.getElementById('apiAutoFields').checked = false;
+  document.getElementById('apiMappings').innerHTML = (saved.mappings || []).map(apiMappingRow).join('');
+  if (saved.listName) document.getElementById('apiListName').value = saved.listName;
+  apiConfigRestored = true;
+  return true;
+}
+
+function saveCurrentApiConfig() {
+  var preset = document.getElementById('apiPreset').value;
+  var url = document.getElementById('apiUrl').value.trim();
+  if (!url) return;
+  data.apiConfigs[apiConfigKey(preset, url)] = {
+    url: url,
+    collection: document.getElementById('apiCollectionPath').value.trim(),
+    name: document.getElementById('apiNamePath').value.trim(),
+    image: document.getElementById('apiImagePath').value.trim(),
+    tags: document.getElementById('apiTagsPath').value.trim(),
+    fetchDetails: document.getElementById('apiFetchDetails').checked,
+    uploadImages: document.getElementById('apiUploadImages').checked,
+    mappings: collectApiMappings(),
+    listName: document.getElementById('apiListName').value.trim(),
+    savedAt: new Date().toISOString()
+  };
+  saveData();
+}
+
 function openApiImporterModal() {
   currentModal = 'apiImport'; currentSeriesId = null; apiPreviewData = null;
   document.getElementById('modalTitle').textContent = 'Importar datos desde API';
@@ -1517,6 +1561,7 @@ function openApiImporterModal() {
   document.getElementById('btnAddApiField').addEventListener('click', function() { document.getElementById('apiMappings').insertAdjacentHTML('beforeend', apiMappingRow()); });
   document.getElementById('apiPreset').addEventListener('change', function() {
     var preset = API_PRESETS[this.value];
+    apiConfigRestored = false;
     if (!preset) return;
     document.getElementById('apiUrl').value = preset.url;
     document.getElementById('apiCollectionPath').value = preset.collection;
@@ -1525,6 +1570,10 @@ function openApiImporterModal() {
     document.getElementById('apiTagsPath').value = preset.tags;
     document.getElementById('apiMappings').innerHTML = preset.mappings.map(apiMappingRow).join('');
     document.getElementById('apiListName').value = preset.label;
+    restoreApiConfig(this.value, preset.url);
+  });
+  document.getElementById('apiUrl').addEventListener('change', function() {
+    if (document.getElementById('apiPreset').value === '') restoreApiConfig('', this.value);
   });
   document.getElementById('btnApiPreview').addEventListener('click', previewApiImport);
   document.getElementById('apiTargetList').addEventListener('change', function() {
@@ -1537,6 +1586,7 @@ async function previewApiImport() {
   var url = document.getElementById('apiUrl').value.trim();
   var preview = document.getElementById('apiPreview');
   if (!url) return alert('Escribe la URL de la API');
+  saveCurrentApiConfig();
   preview.textContent = 'Consultando API...';
   try {
     var response = await fetch(url);
@@ -1552,10 +1602,12 @@ async function previewApiImport() {
         return detailResponse.ok ? await detailResponse.json() : item;
       }));
       collection = detailResults;
-      if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
+      if (document.getElementById('apiAutoFields').checked && collection[0] && !apiConfigRestored) applyApiAutoConfig(collection[0]);
     }
     apiPreviewData = { json: json, collection: collection, mappings: collectApiMappings() };
-    if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
+    if (document.getElementById('apiAutoFields').checked && collection[0] && !apiConfigRestored) applyApiAutoConfig(collection[0]);
+    apiPreviewData.mappings = collectApiMappings();
+    saveCurrentApiConfig();
     preview.innerHTML = '<strong>Conexión correcta:</strong> ' + collection.length + ' items encontrados.<br><span>' + collection.slice(0, 3).map(function(item) { return esc(String(valueAtPath(item, document.getElementById('apiNamePath').value.trim()) || 'Sin nombre')); }).join(' · ') + (collection.length > 3 ? ' · ...' : '') + '</span>';
   } catch (error) {
     apiPreviewData = null;
