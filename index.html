@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MultiBestiario</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2>MultiBestiario</h2>
+    <div class="sidebar-close" id="btnCloseSidebar">&times;</div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Fuentes</div>
+    <div class="sidebar-item" id="btnApiImport">
+      <span class="icon">&#128268;</span><span>Importar desde API</span>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Acciones</div>
+    <div class="sidebar-item" id="btnExport">
+      <span class="icon">&#128190;</span><span>Exportar datos (JSON)</span>
+    </div>
+    <div class="sidebar-item" id="btnImport">
+      <span class="icon">&#128194;</span><span>Importar datos (JSON)</span>
+    </div>
+  </div>
+</div>
+
+<div class="cloud-auth-overlay" id="cloudAuthOverlay">
+  <div class="cloud-auth-card">
+    <h2>Sincronizar MultiBestiario</h2>
+    <p id="cloudAuthMessage">Inicia sesión para acceder a tus listas desde cualquier dispositivo.</p>
+    <form id="cloudAuthForm">
+      <input id="cloudAuthEmail" type="email" placeholder="Correo electrónico" autocomplete="email" required>
+      <input id="cloudAuthPassword" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="btn" type="submit">Iniciar sesión</button>
+    </form>
+    <button class="btn btn-ghost" id="cloudAuthRegister">Crear cuenta nueva</button>
+    <button class="btn btn-ghost" id="cloudAuthContinue">Continuar sin sincronizar</button>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-inner">
+    <div class="header-left">
+      <button class="btn btn-ghost btn-sm" id="btnMenu">&#9776;</button>
+      <h1>MultiBestiario</h1>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost" id="btnAddFolder">+ Carpeta</button>
+      <button class="btn" id="btnAddSerie">+ Lista</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- HOME PAGE -->
+  <div class="page active" id="pageHome">
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M11.5 3C16.1944 3 20 6.80558 20 11.5C20 13.523 19.2933 15.381 18.1132 16.8404L21.1364 19.8636C21.4879 20.2151 21.4879 20.7849 21.1364 21.1364C20.7849 21.4879 20.2151 21.4879 19.8636 21.1364L16.8404 18.1132C15.381 19.2933 13.523 20 11.5 20C6.80558 20 3 16.1944 3 11.5C3 6.80558 6.80558 3 11.5 3ZM11.5 18.2C15.2003 18.2 18.2 15.2003 18.2 11.5C18.2 7.79969 15.2003 4.8 11.5 4.8C7.79969 4.8 4.8 7.79969 4.8 11.5C4.8 15.2003 7.79969 18.2 11.5 18.2Z" fill="currentColor"/></svg>
+      <input type="text" id="homeSearch" placeholder="Buscar serie o tag...">
+    </div>
+
+    <div class="filter-bar" id="homeFilterBar">
+      <span class="filter-label">Filtros:</span>
+    </div>
+
+    <div class="folder-bar" id="folderBar" style="display:none"></div>
+    <div class="results-info" id="homeResultsInfo"></div>
+
+    <div class="series-grid" id="seriesGrid"></div>
+    <div class="empty" id="homeEmpty" style="display:none">
+      <div class="empty-icon">&#127917;</div>
+      <p>No se encontraron listas</p>
+      <p style="font-size:14px; margin-top:4px;">Crea una para empezar</p>
+    </div>
+  </div>
+
+  <!-- SERIE DETAIL PAGE -->
+  <div class="page" id="pageSerie">
+    <div id="serieDetailContent"></div>
+  </div>
+
+  <!-- ITEM DETAIL PAGE -->
+  <div class="page" id="pageItem">
+    <div id="itemDetailContent"></div>
+  </div>
+
+  <!-- LIST TEMPLATE EDITOR PAGE -->
+  <div class="page" id="pageStyleEditor">
+    <div id="styleEditorContent"></div>
+  </div>
+
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2 id="modalTitle">Nueva Serie</h2>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btnCancel">Cancelar</button>
+      <button class="btn" id="btnSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file input for import -->
+<input type="file" id="importFileInput" accept=".json" style="display:none">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>
