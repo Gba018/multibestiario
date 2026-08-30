@@ -1404,6 +1404,16 @@ function apiValueToText(value) {
   return String(value);
 }
 
+function apiRepeatedToText(raw, mapping) {
+  var entries = valueAtPath(raw, mapping.source);
+  if (!Array.isArray(entries)) return apiValueToText(entries);
+  return entries.map(function(entry) {
+    var title = mapping.repeatTitle ? apiValueToText(valueAtPath(entry, mapping.repeatTitle)) : apiValueToText(entry);
+    var content = mapping.repeatContent ? apiValueToText(valueAtPath(entry, mapping.repeatContent)) : '';
+    return mapping.label + ' - ' + title + (content ? '\n' + content : '');
+  }).filter(Boolean).join('\n\n');
+}
+
 function collectApiImages(raw, preferredPath) {
   var urls = [];
   function add(value) {
@@ -1452,16 +1462,17 @@ function valueAtPath(value, path) {
 
 function apiMappingRow(mapping) {
   mapping = mapping || { source: '', label: '', type: 'text' };
-  return '<div class="api-mapping-row">' +
+  return '<div class="api-mapping-row' + (mapping.type === 'repeat' ? ' api-repeat-row' : '') + '">' +
     '<input class="api-source" value="' + esc(mapping.source) + '" placeholder="Ruta JSON: description">' +
     '<input class="api-label" value="' + esc(mapping.label) + '" placeholder="Título del campo">' +
-    '<select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option></select>' +
+    '<select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (mapping.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option></select>' +
+    '<div class="api-repeat-options"><input class="api-repeat-title" value="' + esc(mapping.repeatTitle || '') + '" placeholder="Campo de título: field"><input class="api-repeat-content" value="' + esc(mapping.repeatContent || '') + '" placeholder="Campo adicional: description"></div>' +
     '<button class="field-delete api-delete" type="button">×</button></div>';
 }
 
 function collectApiMappings() {
   return Array.from(document.querySelectorAll('.api-mapping-row')).map(function(row) {
-    return { source: row.querySelector('.api-source').value.trim(), label: row.querySelector('.api-label').value.trim(), type: row.querySelector('.api-type').value };
+    return { source: row.querySelector('.api-source').value.trim(), label: row.querySelector('.api-label').value.trim(), type: row.querySelector('.api-type').value, repeatTitle: row.querySelector('.api-repeat-title') ? row.querySelector('.api-repeat-title').value.trim() : '', repeatContent: row.querySelector('.api-repeat-content') ? row.querySelector('.api-repeat-content').value.trim() : '' };
   }).filter(function(mapping) { return mapping.source && mapping.label; });
 }
 
@@ -1575,7 +1586,7 @@ function openApiImporterModal() {
     '<label class="api-auto-toggle"><input id="apiFetchDetails" type="checkbox"> Cargar el detalle completo de cada resultado <span title="Puede realizar muchas solicitudes">ⓘ</span></label>' +
     '<label class="api-auto-toggle"><input id="apiUploadImages" type="checkbox" checked> Copiar imágenes a Cloudinary</label>' +
     '<label class="api-auto-toggle"><input id="apiAutoFields" type="checkbox" checked> Detectar todos los campos automáticamente</label>' +
-    '<div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div>' +
+    '<div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div><p class="api-repeat-help">Usa <strong>Lista repetida</strong> para arrays como <code>fields</code>. Ejemplo: origen <code>fields</code>, título <code>field</code>, contenido <code>description</code>.</p>' +
     '<div id="apiMappings">' + apiMappingRow({ source: 'description', label: 'Descripción', type: 'textarea' }) + '</div>' +
     '<button class="btn btn-ghost api-preview-btn" id="btnApiPreview">Probar conexión y previsualizar</button>' +
     '<div class="api-preview" id="apiPreview"></div>';
@@ -1682,7 +1693,7 @@ async function importApiData() {
       uploadedImages.push(uploadImages ? await uploadRemoteImage(images[imageIndex], sanitizePublicId(itemName) + '_' + (imageIndex + 1), targetFolder) : images[imageIndex]);
     }
     document.getElementById('apiPreview').textContent = (uploadImages ? 'Copiando imágenes: ' : 'Importando: ') + (index + 1) + ' / ' + apiPreviewData.collection.length;
-    items.push({ id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: Object.fromEntries(fields.map(function(field) { return [field.id, apiValueToText(valueAtPath(raw, field.source))]; })) });
+    items.push({ id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: Object.fromEntries(fields.map(function(field, fieldIndex) { var mapping = mappings[fieldIndex]; return [field.id, mapping && mapping.type === 'repeat' ? apiRepeatedToText(raw, mapping) : apiValueToText(valueAtPath(raw, field.source))]; })) });
   }
   var importedList;
   if (targetList) {
@@ -2198,6 +2209,10 @@ document.addEventListener('DOMContentLoaded', function() {
       if (sibling) up ? sibling.before(row) : sibling.after(row);
     }
     if (e.target.closest('.style-delete')) e.target.closest('.style-block-row').remove();
+  });
+  document.getElementById('modal').addEventListener('change', function(e) {
+    if (!e.target.classList.contains('api-type')) return;
+    e.target.closest('.api-mapping-row').classList.toggle('api-repeat-row', e.target.value === 'repeat');
   });
 
   document.addEventListener('keydown', function(e) {

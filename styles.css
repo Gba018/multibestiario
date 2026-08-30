@@ -52,6 +52,9 @@ body {
 .cloud-auth-card #cloudAuthRegister { margin-top: 12px; }
 .api-copy-config { margin-top: 8px; }
 .api-copy-config:disabled { opacity: .45; cursor: not-allowed; }
+.api-repeat-options { display: none; grid-column: 1 / -1; gap: 7px; }
+.api-repeat-row .api-repeat-options { display: grid; }
+.api-repeat-options input { min-width: 0; padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
 .public-view .header-inner > div:last-child,
 .public-view #btnMenu { display: none; }
 
