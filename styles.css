@@ -90,7 +90,10 @@ body {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.5px;
+  cursor: pointer;
 }
+
+.header h1:hover { color: var(--accent); }
 
 /* ===== BUTTONS ===== */
 .btn {
@@ -646,6 +649,24 @@ body {
   padding: 11px 0;
   overflow-wrap: anywhere;
 }
+
+.item-compact-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.item-compact-header .back-btn { position: static; flex: 0 0 auto; }
+.item-compact-title { font-size: 18px; font-weight: 600; }
+.item-compact-parent { color: var(--text-muted); font-size: 12px; }
+.item-navigator { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.item-navigator span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-secondary); }
+.item-navigator .btn { padding: 5px 10px; font-size: 20px; line-height: 1; }
+
+.item-compact-header + .serie-actions-bar { flex-wrap: wrap; }
 
 .item-layout {
   display: grid;

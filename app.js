@@ -19,6 +19,7 @@ var currentModal = null;
 var currentSeriesId = null;
 var currentCharId = null;
 var currentItemId = null;
+var itemCompactView = false;
 var currentFolderId = null;
 var tempImageUrl = null;
 var tempCoverUrl = null;
@@ -362,6 +363,7 @@ function goToSerie(seriesId) {
   currentSeriesId = seriesId;
   currentCharId = null;
   currentItemId = null;
+  itemCompactView = false;
   styleEditorDraft = null;
   renderSerieDetail(seriesId);
   showPage('pageSerie');
@@ -1172,7 +1174,7 @@ function renderFullStylePreview(s) {
   if (selected) selected.classList.add('template-selected');
 }
 
-function renderItemPageMarkup(s, item, layout, isTemplate) {
+function renderItemPageMarkup(s, item, layout, isTemplate, isCompact) {
   var images = item.images && item.images.length ? item.images : (item.image ? [item.image] : []);
   var cover = item.image || images[0] || '';
   var rows = (layout.blocks || []).map(function(block, index) { return renderLayoutBlock(block, item, s, index); }).join('');
@@ -1181,8 +1183,17 @@ function renderItemPageMarkup(s, item, layout, isTemplate) {
   var titleStyle = layout.titleStyle || {};
   var titleInline = 'color:' + (titleStyle.color || '#f0f0f0') + ';font-family:' + (titleStyle.fontFamily || 'inherit') + ';font-size:' + (titleStyle.fontSize || 22) + 'px;';
   var titleAttr = isTemplate ? ' data-template-title' : '';
-  var html = '<div class="item-hero"><img src="' + (cover || placeholder) + '" class="item-hero-img" alt="' + esc(item.name) + '"><div class="serie-hero-overlay"></div>' + (isTemplate ? '<span class="back-btn template-back">&#8592;</span>' : '<button class="back-btn" id="btnBackItem">&#8592;</button>') + '<div class="item-hero-content"><div class="serie-hero-title"' + titleAttr + ' style="' + titleInline + '">' + esc(item.name) + '</div><div class="item-hero-parent">' + esc(s.name) + '</div></div></div>';
-  html += '<div class="serie-actions-bar">' + (isTemplate ? '<span class="btn btn-ghost template-action">&#9998; Editar item</span><span class="btn btn-ghost template-action btn-danger">&#128465; Eliminar</span>' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>') + '</div>';
+  var compactHeader = '<div class="item-compact-header"><button class="back-btn" id="btnBackItem">&#8592;</button><div><div class="item-compact-title">' + esc(item.name) + '</div><div class="item-compact-parent">' + esc(s.name) + '</div></div></div>';
+  var hero = '<div class="item-hero"><img src="' + (cover || placeholder) + '" class="item-hero-img" alt="' + esc(item.name) + '"><div class="serie-hero-overlay"></div>' + (isTemplate ? '<span class="back-btn template-back">&#8592;</span>' : '<button class="back-btn" id="btnBackItem">&#8592;</button>') + '<div class="item-hero-content"><div class="serie-hero-title"' + titleAttr + ' style="' + titleInline + '">' + esc(item.name) + '</div><div class="item-hero-parent">' + esc(s.name) + '</div></div></div>';
+  var html = isCompact && !isTemplate ? compactHeader : hero;
+  var nav = '';
+  if (!isTemplate) {
+    var itemIndex = (s.characters || []).findIndex(function(candidate) { return candidate.id === item.id; });
+    var previous = itemIndex > 0 ? s.characters[itemIndex - 1] : null;
+    var next = itemIndex >= 0 && itemIndex < s.characters.length - 1 ? s.characters[itemIndex + 1] : null;
+    nav = '<div class="item-navigator"><button class="btn btn-ghost" id="btnPrevItem"' + (previous ? '' : ' disabled') + '>&#8249;</button><span>' + esc(item.name) + '</span><button class="btn btn-ghost" id="btnNextItem"' + (next ? '' : ' disabled') + '>&#8250;</button></div>';
+  }
+  html += '<div class="serie-actions-bar">' + (isTemplate ? '<span class="btn btn-ghost template-action">&#9998; Editar item</span><span class="btn btn-ghost template-action btn-danger">&#128465; Eliminar</span>' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
   html += '<section class="item-data-section"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : '') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
   if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
   return html;
@@ -1252,11 +1263,17 @@ function renderItemDetail(seriesId, itemId) {
   var item = s && (s.characters || []).find(function(x) { return x.id === itemId; });
   if (!s || !item) return goToSerie(seriesId);
   var layout = getListLayout(s);
-  document.getElementById('itemDetailContent').innerHTML = renderItemPageMarkup(s, item, layout, false);
+  document.getElementById('itemDetailContent').innerHTML = renderItemPageMarkup(s, item, layout, false, itemCompactView);
   document.getElementById('btnBackItem').addEventListener('click', function() { goToSerie(s.id); });
   document.getElementById('btnEditItem').addEventListener('click', function() { openEditCharModal(s.id, item.id); });
   document.getElementById('btnChangeItemCover').addEventListener('click', function() { openEditCharModal(s.id, item.id); });
   document.getElementById('btnMoveItem').addEventListener('click', function() { openMoveItemModal(s.id, item.id); });
+  document.getElementById('btnToggleItemView').addEventListener('click', function() { itemCompactView = !itemCompactView; renderItemDetail(s.id, item.id); });
+  var itemIndex = (s.characters || []).findIndex(function(candidate) { return candidate.id === item.id; });
+  var previous = itemIndex > 0 ? s.characters[itemIndex - 1] : null;
+  var next = itemIndex >= 0 && itemIndex < s.characters.length - 1 ? s.characters[itemIndex + 1] : null;
+  if (previous) document.getElementById('btnPrevItem').addEventListener('click', function() { goToItem(s.id, previous.id); });
+  if (next) document.getElementById('btnNextItem').addEventListener('click', function() { goToItem(s.id, next.id); });
   document.getElementById('btnDelItem').addEventListener('click', function() { if (confirm('Eliminar este item?')) { deleteCharacter(s.id, item.id); goToSerie(s.id); } });
 }
 
@@ -1667,13 +1684,16 @@ async function importApiData() {
     document.getElementById('apiPreview').textContent = (uploadImages ? 'Copiando imágenes: ' : 'Importando: ') + (index + 1) + ' / ' + apiPreviewData.collection.length;
     items.push({ id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: Object.fromEntries(fields.map(function(field) { return [field.id, apiValueToText(valueAtPath(raw, field.source))]; })) });
   }
+  var importedList;
   if (targetList) {
     targetList.characters = (targetList.characters || []).concat(items);
     targetList._open = true;
+    importedList = targetList;
   } else {
-    data.series.push({ id: generateId(), name: name, cover: items[0] ? items[0].image : '', folderId: currentFolderId || null, description: '', characters: items, fields: fields, checkLabel: 'Check', tags: [], _open: true });
+    importedList = { id: generateId(), name: name, cover: items[0] ? items[0].image : '', folderId: currentFolderId || null, description: '', characters: items, fields: fields, checkLabel: 'Check', tags: [], _open: true };
+    data.series.push(importedList);
   }
-  saveData(); apiPreviewData = null; apiImporting = false; document.getElementById('btnSave').disabled = false; document.getElementById('btnSave').textContent = 'Guardar'; renderHome(); closeModal();
+  saveData(); apiPreviewData = null; apiImporting = false; document.getElementById('btnSave').disabled = false; document.getElementById('btnSave').textContent = 'Guardar'; closeModal(); goToSerie(importedList.id);
   alert('Importados ' + items.length + ' items en "' + name + '"');
 }
 
@@ -2160,6 +2180,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.getElementById('btnAddSerie').addEventListener('click', function() { openModal('series'); });
   document.getElementById('btnAddFolder').addEventListener('click', createFolder);
+  document.getElementById('appHomeTitle').addEventListener('click', function() { goHome(); });
   document.getElementById('homeSearch').addEventListener('input', renderHome);
   document.getElementById('btnCancel').addEventListener('click', closeModal);
   document.getElementById('btnSave').addEventListener('click', saveModal);
