@@ -1457,9 +1457,9 @@ function inferApiConfig(sample) {
   var namePath = '';
   var imagePath = '';
   var tagsPath = '';
-  var ignored = /^(id|uuid|slug|name|title|url|link|image|cover|poster|thumbnail|avatar|photo|tags?|genres?|categories?)$/i;
+  var ignored = /^(image|cover|poster|thumbnail|avatar|photo)$/i;
   function walk(value, path, depth) {
-    if (!value || typeof value !== 'object' || depth > 2) return;
+    if (!value || typeof value !== 'object' || depth > 5) return;
     Object.keys(value).forEach(function(key) {
       var nextPath = path ? path + '.' + key : key;
       var child = value[key];
@@ -1470,14 +1470,10 @@ function inferApiConfig(sample) {
         else if (child && typeof child.url === 'string') imagePath = nextPath + '.url';
       }
       if (!tagsPath && /^(tags?|genres?|categories?|types?)$/i.test(key) && (Array.isArray(child) || typeof child === 'string')) tagsPath = nextPath;
-      if (ignored.test(key)) {
-        if (child && typeof child === 'object' && !Array.isArray(child)) walk(child, nextPath, depth + 1);
-        return;
-      }
       if (child === null || child === undefined || typeof child === 'string' || typeof child === 'number' || typeof child === 'boolean' || child instanceof Date) {
-        fields.push({ source: nextPath, label: prettyFieldLabel(key), type: typeof child === 'number' ? 'number' : 'text' });
+        if (!ignored.test(key) && nextPath !== namePath && nextPath !== imagePath && nextPath !== tagsPath) fields.push({ source: nextPath, label: prettyFieldLabel(key), type: typeof child === 'number' ? 'number' : 'text' });
       } else if (Array.isArray(child) && child.every(function(entry) { return typeof entry === 'string' || typeof entry === 'number'; })) {
-        fields.push({ source: nextPath, label: prettyFieldLabel(key), type: 'text' });
+        if (!ignored.test(key) && nextPath !== tagsPath) fields.push({ source: nextPath, label: prettyFieldLabel(key), type: 'text' });
       } else if (Array.isArray(child) && child[0] && typeof child[0] === 'object') {
         walk(child[0], nextPath + '[0]', depth + 1);
       } else if (child && typeof child === 'object' && !Array.isArray(child)) {
@@ -1518,6 +1514,14 @@ function restoreApiConfig(preset, url) {
   return true;
 }
 
+function updateApiConfigCopyButton() {
+  var button = document.getElementById('btnCopyApiConfig');
+  if (!button) return;
+  var preset = document.getElementById('apiPreset').value;
+  var url = document.getElementById('apiUrl').value.trim();
+  button.disabled = !data.apiConfigs[apiConfigKey(preset, url)];
+}
+
 function saveCurrentApiConfig() {
   var preset = document.getElementById('apiPreset').value;
   var url = document.getElementById('apiUrl').value.trim();
@@ -1538,12 +1542,12 @@ function saveCurrentApiConfig() {
 }
 
 function openApiImporterModal() {
-  currentModal = 'apiImport'; currentSeriesId = null; apiPreviewData = null;
+  currentModal = 'apiImport'; currentSeriesId = null; apiPreviewData = null; apiConfigRestored = false;
   document.getElementById('modalTitle').textContent = 'Importar datos desde API';
   document.getElementById('btnSave').textContent = 'Importar lista';
   document.getElementById('modalBody').innerHTML =
     '<p class="modal-help">Solo se importarán los campos que configures. Usa rutas con puntos, por ejemplo <code>data.results</code>.</p>' +
-    '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select></div>' +
+    '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select><button class="btn btn-ghost btn-sm api-copy-config" id="btnCopyApiConfig" type="button" disabled>Copiar configuración anterior</button></div>' +
     '<div class="form-group"><label>URL del endpoint</label><input id="apiUrl" type="url" placeholder="https://ejemplo.com/api/items"></div>' +
     '<div class="form-group"><label>Lista de destino</label><select id="apiTargetList"><option value="__new__">Crear una nueva lista</option>' + data.series.map(function(list) { return '<option value="' + esc(list.id) + '">' + esc(list.name) + '</option>'; }).join('') + '</select></div>' +
     '<div class="form-group"><label>Nombre de la lista nueva</label><input id="apiListName" placeholder="Mi colección"></div>' +
@@ -1553,7 +1557,7 @@ function openApiImporterModal() {
     '<div class="form-group"><label>Ruta de tags (opcional)</label><input id="apiTagsPath" placeholder="genres"></div>' +
     '<label class="api-auto-toggle"><input id="apiFetchDetails" type="checkbox"> Cargar el detalle completo de cada resultado <span title="Puede realizar muchas solicitudes">ⓘ</span></label>' +
     '<label class="api-auto-toggle"><input id="apiUploadImages" type="checkbox" checked> Copiar imágenes a Cloudinary</label>' +
-    '<label class="api-auto-toggle"><input id="apiAutoFields" type="checkbox" checked> Detectar campos automáticamente</label>' +
+    '<label class="api-auto-toggle"><input id="apiAutoFields" type="checkbox" checked> Detectar todos los campos automáticamente</label>' +
     '<div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div>' +
     '<div id="apiMappings">' + apiMappingRow({ source: 'description', label: 'Descripción', type: 'textarea' }) + '</div>' +
     '<button class="btn btn-ghost api-preview-btn" id="btnApiPreview">Probar conexión y previsualizar</button>' +
@@ -1570,10 +1574,15 @@ function openApiImporterModal() {
     document.getElementById('apiTagsPath').value = preset.tags;
     document.getElementById('apiMappings').innerHTML = preset.mappings.map(apiMappingRow).join('');
     document.getElementById('apiListName').value = preset.label;
-    restoreApiConfig(this.value, preset.url);
+    updateApiConfigCopyButton();
   });
   document.getElementById('apiUrl').addEventListener('change', function() {
-    if (document.getElementById('apiPreset').value === '') restoreApiConfig('', this.value);
+    updateApiConfigCopyButton();
+  });
+  document.getElementById('btnCopyApiConfig').addEventListener('click', function() {
+    var preset = document.getElementById('apiPreset').value;
+    var url = document.getElementById('apiUrl').value.trim();
+    if (!restoreApiConfig(preset, url)) return alert('Todavía no hay una configuración anterior para esta API.');
   });
   document.getElementById('btnApiPreview').addEventListener('click', previewApiImport);
   document.getElementById('apiTargetList').addEventListener('change', function() {
@@ -1602,10 +1611,10 @@ async function previewApiImport() {
         return detailResponse.ok ? await detailResponse.json() : item;
       }));
       collection = detailResults;
-      if (document.getElementById('apiAutoFields').checked && collection[0] && !apiConfigRestored) applyApiAutoConfig(collection[0]);
+      if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
     }
     apiPreviewData = { json: json, collection: collection, mappings: collectApiMappings() };
-    if (document.getElementById('apiAutoFields').checked && collection[0] && !apiConfigRestored) applyApiAutoConfig(collection[0]);
+    if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
     apiPreviewData.mappings = collectApiMappings();
     saveCurrentApiConfig();
     preview.innerHTML = '<strong>Conexión correcta:</strong> ' + collection.length + ' items encontrados.<br><span>' + collection.slice(0, 3).map(function(item) { return esc(String(valueAtPath(item, document.getElementById('apiNamePath').value.trim()) || 'Sin nombre')); }).join(' · ') + (collection.length > 3 ? ' · ...' : '') + '</span>';
