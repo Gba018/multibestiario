@@ -1463,9 +1463,9 @@ function valueAtPath(value, path) {
 function apiMappingRow(mapping) {
   mapping = mapping || { source: '', label: '', type: 'text' };
   return '<div class="api-mapping-row' + (mapping.type === 'repeat' ? ' api-repeat-row' : '') + '">' +
-    '<input class="api-source" value="' + esc(mapping.source) + '" placeholder="Ruta JSON: description">' +
-    '<input class="api-label" value="' + esc(mapping.label) + '" placeholder="Título del campo">' +
-    '<select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (mapping.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option></select>' +
+    '<label class="api-map-control"><span>Ruta de datos</span><input class="api-source" value="' + esc(mapping.source) + '" placeholder="Ej: fields"></label>' +
+    '<label class="api-map-control"><span>Nombre visible</span><input class="api-label" value="' + esc(mapping.label) + '" placeholder="Ej: Fields"></label>' +
+    '<label class="api-map-control"><span>Tipo de campo</span><select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (mapping.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option></select></label>' +
     '<div class="api-repeat-options"><input class="api-repeat-title" value="' + esc(mapping.repeatTitle || '') + '" placeholder="Campo de título: field"><input class="api-repeat-content" value="' + esc(mapping.repeatContent || '') + '" placeholder="Campo adicional: description"></div>' +
     '<button class="field-delete api-delete" type="button">×</button></div>';
 }
@@ -1571,22 +1571,26 @@ function saveCurrentApiConfig() {
 
 function openApiImporterModal() {
   currentModal = 'apiImport'; currentSeriesId = null; apiPreviewData = null; apiConfigRestored = false;
+  document.getElementById('modal').classList.add('api-modal');
   document.getElementById('modalTitle').textContent = 'Importar datos desde API';
   document.getElementById('btnSave').textContent = 'Importar lista';
   document.getElementById('modalBody').innerHTML =
     '<p class="modal-help">Solo se importarán los campos que configures. Usa rutas con puntos, por ejemplo <code>data.results</code>.</p>' +
+    '<div class="api-section-title">1. Fuente y destino</div>' +
     '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select><button class="btn btn-ghost btn-sm api-copy-config" id="btnCopyApiConfig" type="button" disabled>Copiar configuración anterior</button></div>' +
     '<div class="form-group"><label>URL del endpoint</label><input id="apiUrl" type="url" placeholder="https://ejemplo.com/api/items"></div>' +
     '<div class="form-group"><label>Lista de destino</label><select id="apiTargetList"><option value="__new__">Crear una nueva lista</option>' + data.series.map(function(list) { return '<option value="' + esc(list.id) + '">' + esc(list.name) + '</option>'; }).join('') + '</select></div>' +
     '<div class="form-group"><label>Nombre de la lista nueva</label><input id="apiListName" placeholder="Mi colección"></div>' +
+    '<div class="api-section-title">2. Cómo leer la respuesta</div>' +
     '<div class="form-group"><label>Ruta de la colección</label><input id="apiCollectionPath" placeholder="data.results (vacío si la respuesta es un array)"></div>' +
     '<div class="form-group"><label>Ruta del nombre del item</label><input id="apiNamePath" value="name" placeholder="name"></div>' +
     '<div class="form-group"><label>Ruta de la imagen (opcional)</label><input id="apiImagePath" placeholder="image.url o image"></div>' +
     '<div class="form-group"><label>Ruta de tags (opcional)</label><input id="apiTagsPath" placeholder="genres"></div>' +
+    '<div class="api-section-title">3. Opciones de consulta</div>' +
     '<label class="api-auto-toggle"><input id="apiFetchDetails" type="checkbox"> Cargar el detalle completo de cada resultado <span title="Puede realizar muchas solicitudes">ⓘ</span></label>' +
     '<label class="api-auto-toggle"><input id="apiUploadImages" type="checkbox" checked> Copiar imágenes a Cloudinary</label>' +
     '<label class="api-auto-toggle"><input id="apiAutoFields" type="checkbox" checked> Detectar todos los campos automáticamente</label>' +
-    '<div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div><p class="api-repeat-help">Usa <strong>Lista repetida</strong> para arrays como <code>fields</code>. Ejemplo: origen <code>fields</code>, título <code>field</code>, contenido <code>description</code>.</p>' +
+    '<div class="api-section-title">4. Campos que se guardarán</div><div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div><p class="api-repeat-help">Usa <strong>Lista repetida</strong> para arrays como <code>fields</code>. Ejemplo: origen <code>fields</code>, título <code>field</code>, contenido <code>description</code>.</p>' +
     '<div id="apiMappings">' + apiMappingRow({ source: 'description', label: 'Descripción', type: 'textarea' }) + '</div>' +
     '<button class="btn btn-ghost api-preview-btn" id="btnApiPreview">Probar conexión y previsualizar</button>' +
     '<div class="api-preview" id="apiPreview"></div>';
@@ -1645,7 +1649,15 @@ async function previewApiImport() {
     if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
     apiPreviewData.mappings = collectApiMappings();
     saveCurrentApiConfig();
-    preview.innerHTML = '<strong>Conexión correcta:</strong> ' + collection.length + ' items encontrados.<br><span>' + collection.slice(0, 3).map(function(item) { return esc(String(valueAtPath(item, document.getElementById('apiNamePath').value.trim()) || 'Sin nombre')); }).join(' · ') + (collection.length > 3 ? ' · ...' : '') + '</span>';
+    var suggestions = collection[0] ? inferApiConfig(collection[0]).mappings.slice(0, 18) : [];
+    preview.innerHTML = '<strong>Conexión correcta:</strong> ' + collection.length + ' items encontrados.<br><span>' + collection.slice(0, 3).map(function(item) { return esc(String(valueAtPath(item, document.getElementById('apiNamePath').value.trim()) || 'Sin nombre')); }).join(' · ') + (collection.length > 3 ? ' · ...' : '') + '</span>' + (suggestions.length ? '<div class="api-suggestions-title">Campos encontrados en la respuesta · pulsa para agregarlos</div><div class="api-suggestions">' + suggestions.map(function(mapping) { return '<button type="button" class="api-suggestion" data-api-source="' + esc(mapping.source) + '" data-api-label="' + esc(mapping.label) + '">' + esc(mapping.label) + '<small>' + esc(mapping.source) + '</small></button>'; }).join('') + '</div>' : '');
+    preview.querySelectorAll('.api-suggestion').forEach(function(button) {
+      button.addEventListener('click', function() {
+        var source = this.dataset.apiSource;
+        if (Array.from(document.querySelectorAll('.api-source')).some(function(input) { return input.value.trim() === source; })) return;
+        document.getElementById('apiMappings').insertAdjacentHTML('beforeend', apiMappingRow({ source: source, label: this.dataset.apiLabel, type: 'text' }));
+      });
+    });
   } catch (error) {
     apiPreviewData = null;
     preview.textContent = 'No se pudo leer la API: ' + error.message + '. Verifica la URL, la ruta y que permita CORS.';
@@ -1809,6 +1821,7 @@ function openEditCharModal(seriesId, charId) {
 
 function closeModal() {
   document.getElementById('modal').classList.remove('active');
+  document.getElementById('modal').classList.remove('api-modal');
   currentModal = null;
   currentSeriesId = null;
   currentCharId = null;

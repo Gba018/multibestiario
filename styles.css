@@ -1275,6 +1275,11 @@ body.item-mode .container {
   padding: 20px;
 }
 
+.modal.api-modal {
+  width: 75vw;
+  max-width: none;
+}
+
 .modal h2 {
   font-size: 18px;
   margin-bottom: 16px;
@@ -1298,6 +1303,17 @@ body.item-mode .container {
   margin-bottom: 8px;
 }
 
+.api-section-title {
+  margin: 18px 0 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.api-section-title:first-of-type { margin-top: 4px; }
+
 .api-fields-heading label {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1310,6 +1326,9 @@ body.item-mode .container {
   gap: 6px;
   margin-bottom: 8px;
 }
+
+.api-map-control { min-width: 0; }
+.api-map-control span { display: block; margin: 0 0 4px; color: var(--text-muted); font-size: 10px; }
 
 .api-mapping-row input,
 .api-mapping-row select {
@@ -1355,6 +1374,12 @@ body.item-mode .container {
 .api-preview strong {
   color: var(--accent);
 }
+
+.api-suggestions-title { margin-top: 12px; color: var(--text); font-size: 11px; font-weight: 600; }
+.api-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.api-suggestion { display: inline-flex; flex-direction: column; align-items: flex-start; padding: 6px 8px; background: var(--surface-raised); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 11px; }
+.api-suggestion:hover { border-color: var(--accent); }
+.api-suggestion small { color: var(--text-muted); font-size: 9px; }
 
 .field-editor-row {
   display: grid;
@@ -1598,6 +1623,7 @@ body.item-mode .container {
 }
 
 @media (max-width: 760px) {
+  .modal.api-modal { width: calc(100vw - 24px); }
   .style-editor-workspace { grid-template-columns: 1fr; }
   .style-editor-controls { position: static; }
   .style-editor-top { align-items: flex-start; }
