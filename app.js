@@ -1646,6 +1646,64 @@ function updateApiConfigCopyButton() {
   button.disabled = !data.apiConfigs[apiConfigKey(preset, url)];
 }
 
+function exportCurrentApiConfig() {
+  var url = document.getElementById('apiUrl').value.trim();
+  if (!url) return alert('Escribe la URL de la API antes de exportar.');
+  var config = {
+    preset: document.getElementById('apiPreset').value,
+    url: url,
+    collection: document.getElementById('apiCollectionPath').value.trim(),
+    name: document.getElementById('apiNamePath').value.trim(),
+    image: document.getElementById('apiImagePath').value.trim(),
+    tags: document.getElementById('apiTagsPath').value.trim(),
+    fetchDetails: document.getElementById('apiFetchDetails').checked,
+    uploadImages: document.getElementById('apiUploadImages').checked,
+    autoFields: document.getElementById('apiAutoFields').checked,
+    mappings: collectApiMappings(),
+    listName: document.getElementById('apiListName').value.trim(),
+    exportedAt: new Date().toISOString()
+  };
+  var blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+  var objectUrl = URL.createObjectURL(blob);
+  var link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = 'multibestiario_api_config_' + sanitizePublicId(config.listName || 'configuracion') + '.json';
+  link.click();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function importApiConfigFile(event) {
+  var file = event.target.files && event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function() {
+    try {
+      var config = JSON.parse(reader.result);
+      if (!config || !config.url || !Array.isArray(config.mappings)) throw new Error('El archivo no contiene una configuración válida.');
+      var preset = document.getElementById('apiPreset');
+      if (config.preset && preset.querySelector('option[value="' + config.preset + '"]')) preset.value = config.preset;
+      else preset.value = '';
+      document.getElementById('apiUrl').value = config.url || '';
+      document.getElementById('apiCollectionPath').value = config.collection || '';
+      document.getElementById('apiNamePath').value = config.name || 'name';
+      document.getElementById('apiImagePath').value = config.image || '';
+      document.getElementById('apiTagsPath').value = config.tags || '';
+      document.getElementById('apiFetchDetails').checked = !!config.fetchDetails;
+      document.getElementById('apiUploadImages').checked = config.uploadImages !== false;
+      document.getElementById('apiAutoFields').checked = !!config.autoFields;
+      document.getElementById('apiMappings').innerHTML = config.mappings.map(apiMappingRow).join('');
+      if (config.listName) document.getElementById('apiListName').value = config.listName;
+      apiConfigRestored = true;
+      updateApiConfigCopyButton();
+      alert('Configuración API cargada correctamente.');
+    } catch (error) {
+      alert('No se pudo cargar la configuración: ' + error.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
 function saveCurrentApiConfig() {
   var preset = document.getElementById('apiPreset').value;
   var url = document.getElementById('apiUrl').value.trim();
@@ -1671,7 +1729,7 @@ function openApiImporterModal() {
   apiPage.innerHTML = '<div class="api-import-page"><header class="api-page-header"><button class="btn btn-ghost" id="apiPageBack">&#8592; Volver</button><div><h2>Importar datos desde API</h2><p>Configura la fuente y revisa los datos antes de importarlos</p></div><button class="btn" id="apiPageImport">Importar datos</button></header><div class="api-page-content">' +
     '<p class="modal-help">Solo se importarán los campos que configures. Usa rutas con puntos, por ejemplo <code>data.results</code>.</p>' +
     '<div class="api-section-title">1. Fuente y destino</div>' +
-    '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select><button class="btn btn-ghost btn-sm api-copy-config" id="btnCopyApiConfig" type="button" disabled>Copiar configuración anterior</button></div>' +
+    '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select><button class="btn btn-ghost btn-sm api-copy-config" id="btnCopyApiConfig" type="button" disabled>Copiar configuración anterior</button><button class="btn btn-ghost btn-sm api-copy-config" id="btnExportApiConfig" type="button">Exportar configuración</button><input id="apiImportConfigFile" type="file" accept=".json,application/json" hidden><button class="btn btn-ghost btn-sm api-copy-config" id="btnImportApiConfig" type="button">Importar configuración</button></div>' +
     '<div class="form-group"><label>URL del endpoint</label><input id="apiUrl" type="url" placeholder="https://ejemplo.com/api/items"></div>' +
     '<div class="form-group"><label>Lista de destino</label><select id="apiTargetList"><option value="__new__">Crear una nueva lista</option>' + data.series.map(function(list) { return '<option value="' + esc(list.id) + '">' + esc(list.name) + '</option>'; }).join('') + '</select></div>' +
     '<div class="form-group"><label>Nombre de la lista nueva</label><input id="apiListName" placeholder="Mi colección"></div>' +
@@ -1712,6 +1770,9 @@ function openApiImporterModal() {
     var url = document.getElementById('apiUrl').value.trim();
     if (!restoreApiConfig(preset, url)) return alert('Todavía no hay una configuración anterior para esta API.');
   });
+  document.getElementById('btnExportApiConfig').addEventListener('click', exportCurrentApiConfig);
+  document.getElementById('btnImportApiConfig').addEventListener('click', function() { document.getElementById('apiImportConfigFile').click(); });
+  document.getElementById('apiImportConfigFile').addEventListener('change', importApiConfigFile);
   document.getElementById('btnApiPreview').addEventListener('click', previewApiImport);
   document.getElementById('apiTargetList').addEventListener('change', function() {
     document.getElementById('apiListName').disabled = this.value !== '__new__';
