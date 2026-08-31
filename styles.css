@@ -721,6 +721,21 @@ body {
   font-size: 14px;
 }
 
+.repeat-list { display: grid; gap: 8px; }
+.repeat-entry { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.repeat-entry img { width: 42px; height: 42px; flex: 0 0 42px; object-fit: cover; border-radius: 6px; background: var(--surface-raised); }
+.repeat-entry-text { min-width: 0; }
+.repeat-entry-text strong { display: block; }
+.repeat-entry-text a { display: block; }
+.related-item-link { color: var(--accent); text-decoration: none; cursor: pointer; }
+.related-item-link:hover { text-decoration: underline; }
+.related-api-link.is-loading { opacity: .65; pointer-events: none; }
+.inspector-page-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.inspector-page-actions h3,
+.inspector-page-actions p { width: 100%; margin: 0; }
+.inspector-page-actions p { color: var(--text-muted); font-size: 12px; }
+.inspector-page-actions .btn:disabled { opacity: .65; cursor: not-allowed; }
+
 .layout-image {
   padding: 0;
   overflow: hidden;
@@ -940,7 +955,8 @@ body {
 .full-style-canvas {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 24px;
+  padding: 16px;
+  overflow-x: auto;
   background: radial-gradient(circle at top, #222 0, #101010 60%);
 }
 
@@ -950,9 +966,40 @@ body.item-mode .container {
 }
 
 .full-style-canvas #fullStylePreview > .item-hero {
-  margin-left: -24px;
-  margin-right: -24px;
-  margin-top: -24px;
+  margin-left: -16px;
+  margin-right: -16px;
+  margin-top: -16px;
+}
+
+/* La plantilla conserva el ancho real de la página del item aunque el
+   inspector reduzca el espacio visible. El canvas puede desplazarse
+   horizontalmente, pero los porcentajes y tamaños siguen siendo reales. */
+.full-style-canvas #fullStylePreview {
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+
+/* La zona de información debe conservar el área completa de edición de la
+   ficha, aunque el contenido tenga pocos campos o el inspector esté abierto. */
+.full-style-canvas .template-information {
+  width: 100%;
+  min-height: max(680px, calc(100vh - 220px)) !important;
+  height: auto;
+}
+
+.full-style-canvas .template-information > .item-layout {
+  width: 100%;
+  min-height: max(640px, calc(100vh - 300px)) !important;
+  height: max(var(--canvas-height, 640px), calc(100vh - 300px)) !important;
+  display: block;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.full-style-canvas #fullStylePreview > .item-data-section {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .direct-preview-card {
@@ -1279,6 +1326,12 @@ body.item-mode .container {
   width: 75vw;
   max-width: none;
 }
+
+.api-import-page { min-height: calc(100vh - 76px); width: 100vw; margin-left: calc(50% - 50vw); background: #101010; }
+.api-page-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; background: rgba(15,15,15,.96); border-bottom: 1px solid var(--border); }
+.api-page-header h2 { font-size: 20px; text-align: center; }
+.api-page-header p { color: var(--text-muted); font-size: 12px; text-align: center; }
+.api-page-content { width: min(100%, 1100px); margin: 0 auto; padding: 24px; }
 
 .modal h2 {
   font-size: 18px;
@@ -1623,6 +1676,11 @@ body.item-mode .container {
 }
 
 @media (max-width: 760px) {
+  .api-page-header { padding: 12px; gap: 8px; }
+  .api-page-header h2 { font-size: 15px; }
+  .api-page-header p { display: none; }
+  .api-page-header .btn { padding-left: 8px; padding-right: 8px; font-size: 12px; }
+  .api-page-content { padding: 14px; }
   .modal.api-modal { width: calc(100vw - 24px); }
   .style-editor-workspace { grid-template-columns: 1fr; }
   .style-editor-controls { position: static; }

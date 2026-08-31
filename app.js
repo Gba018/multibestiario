@@ -806,10 +806,36 @@ function deleteSeries(id) {
   renderHome();
 }
 
+function sortableItemValue(item, fieldId) {
+  if (fieldId === 'name') return item.name || '';
+  if (fieldId === 'alias') return item.alias || '';
+  if (fieldId === 'tags') return (item.tags || []).join(', ');
+  return item.values && item.values[fieldId] !== undefined ? item.values[fieldId] : '';
+}
+
+function applyListSort(s) {
+  if (!s || !s.sort || !s.sort.field) return;
+  var direction = s.sort.direction === 'desc' ? -1 : 1;
+  s.characters = (s.characters || []).slice().sort(function(a, b) {
+    var left = sortableItemValue(a, s.sort.field);
+    var right = sortableItemValue(b, s.sort.field);
+    var leftEmpty = left === null || left === undefined || String(left).trim() === '';
+    var rightEmpty = right === null || right === undefined || String(right).trim() === '';
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    var leftNumber = Number(left);
+    var rightNumber = Number(right);
+    var result = !isNaN(leftNumber) && !isNaN(rightNumber) && String(left).trim() !== '' && String(right).trim() !== ''
+      ? leftNumber - rightNumber
+      : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+    return result * direction;
+  });
+}
+
 /* ===== SERIE DETAIL ===== */
 function renderSerieDetail(seriesId) {
   var s = data.series.find(function(x) { return x.id === seriesId; });
   if (!s) return goHome();
+  applyListSort(s);
 
   var container = document.getElementById('serieDetailContent');
   var chars = s.characters || [];
@@ -859,6 +885,7 @@ function renderSerieDetail(seriesId) {
   html += '<div class="serie-actions-bar">';
   html += '<button class="btn" id="btnAddChar">+ Item</button>';
   html += '<button class="btn btn-ghost" id="btnEditFields">&#9881; Campos de la lista</button>';
+  html += '<button class="btn btn-ghost" id="btnEditSort">&#8597; Ordenar' + (s.sort && s.sort.field ? ' (' + (s.sort.direction === 'desc' ? 'Z-A' : 'A-Z') + ')' : '') + '</button>';
   html += '<button class="btn btn-ghost" id="btnEditStyle">&#10022; Editar estilo de lista</button>';
   html += '<button class="btn btn-ghost" id="btnEditSerie">&#9998; Editar lista</button>';
   html += '<button class="btn btn-ghost" id="btnEditSerieTags">&#127991; Tags</button>';
@@ -876,6 +903,7 @@ function renderSerieDetail(seriesId) {
   document.getElementById('btnAddChar2').addEventListener('click', function() { openModal('character', s.id); });
   document.getElementById('btnEditSerie').addEventListener('click', function() { openEditSeriesModal(s.id); });
   document.getElementById('btnEditFields').addEventListener('click', function() { openFieldsModal(s.id); });
+  document.getElementById('btnEditSort').addEventListener('click', function() { openSortModal(s.id); });
   document.getElementById('btnEditStyle').addEventListener('click', function() { openStyleModal(s.id); });
   document.getElementById('btnEditSerieTags').addEventListener('click', function() { editSeriesTags(s.id); });
   document.getElementById('btnDelSerie').addEventListener('click', function() {
@@ -1003,7 +1031,7 @@ function openFullStyleEditor(seriesId) {
   styleEditorDraft = JSON.parse(JSON.stringify(getListLayout(s)));
   if (!styleEditorDraft.titleStyle) styleEditorDraft.titleStyle = {};
   var editor = document.getElementById('styleEditorContent');
-  editor.innerHTML = '<div class="full-style-editor"><header><button class="btn btn-ghost" id="fullStyleBack">&#8592; Volver</button><div><h2>Plantilla de ' + esc(s.name) + '</h2><p>Edita directamente la ficha del item</p></div><button class="btn" id="fullStyleSave">Guardar plantilla</button></header><div class="full-style-body"><main class="full-style-canvas"><div class="style-preview-label">Vista previa directa · mueve y redimensiona cada objeto</div><div id="fullStylePreview"></div></main><aside class="full-style-inspector"><div id="fullStyleControls"></div><div class="inspector-add"><label>Agregar bloque</label><select id="fullStyleAddType"><option value="text">Campo de texto</option><option value="image">Imagen principal</option><option value="image:1">Imagen adicional</option><option value="alias">Alias</option><option value="tags">Tags</option></select><button class="btn btn-ghost" id="fullStyleAdd">+ Agregar</button></div></aside></div></div>';
+  editor.innerHTML = '<div class="full-style-editor"><header><button class="btn btn-ghost" id="fullStyleBack">&#8592; Volver</button><div><h2>Plantilla de ' + esc(s.name) + '</h2><p>Edita directamente la ficha del item</p></div><button class="btn" id="fullStyleSave">Guardar plantilla</button></header><div class="full-style-body"><main class="full-style-canvas"><div class="style-preview-label">Vista previa directa · mueve y redimensiona cada objeto</div><div id="fullStylePreview"></div></main><aside class="full-style-inspector"><div id="fullStyleControls"></div><div class="inspector-page-actions"><h3>Acciones del item</h3><p>Se muestran en la página real del item, no forman parte de la plantilla.</p><button type="button" class="btn btn-ghost" disabled>&#9998; Editar item</button><button type="button" class="btn btn-ghost btn-danger" disabled>&#128465; Eliminar</button></div><div class="inspector-add"><label>Agregar bloque</label><select id="fullStyleAddType"><option value="text">Campo de texto</option><option value="image">Imagen principal</option><option value="image:1">Imagen adicional</option><option value="alias">Alias</option><option value="tags">Tags</option></select><button class="btn btn-ghost" id="fullStyleAdd">+ Agregar</button></div></aside></div></div>';
   document.getElementById('fullStyleBack').addEventListener('click', function() { goToSerie(s.id); });
   document.getElementById('fullStyleSave').addEventListener('click', function() { s.layout = styleEditorDraft; saveData(); goToSerie(s.id); });
   document.getElementById('fullStyleAdd').addEventListener('click', function() {
@@ -1103,7 +1131,12 @@ function updateFullStyle(event) {
 function renderFullStylePreview(s) {
   var preview = document.getElementById('fullStylePreview');
   if (!preview || !styleEditorDraft) return;
-  var item = (s.characters || [])[0] || { name: 'Item de ejemplo', image: '', images: [], values: {} };
+  var item = JSON.parse(JSON.stringify((s.characters || [])[0] || { name: 'Item de ejemplo', image: '', images: [], values: {} }));
+  if (!item.name) item.name = 'Item de ejemplo';
+  if (!item.values) item.values = {};
+  (s.fields || []).forEach(function(field) {
+    if (item.values[field.id] === undefined || item.values[field.id] === '') item.values[field.id] = 'Contenido de ejemplo';
+  });
   preview.innerHTML = renderItemPageMarkup(s, item, styleEditorDraft, true);
   var grid = preview.querySelector('.item-layout');
   if (grid) {
@@ -1193,8 +1226,8 @@ function renderItemPageMarkup(s, item, layout, isTemplate, isCompact) {
     var next = itemIndex >= 0 && itemIndex < s.characters.length - 1 ? s.characters[itemIndex + 1] : null;
     nav = '<div class="item-navigator"><button class="btn btn-ghost" id="btnPrevItem" title="Item anterior" aria-label="Item anterior"' + (previous ? '' : ' disabled') + '>&#8249;</button><button class="btn btn-ghost" id="btnNextItem" title="Item siguiente" aria-label="Item siguiente"' + (next ? '' : ' disabled') + '>&#8250;</button></div>';
   }
-  html += '<div class="serie-actions-bar">' + (isTemplate ? '<span class="btn btn-ghost template-action">&#9998; Editar item</span><span class="btn btn-ghost template-action btn-danger">&#128465; Eliminar</span>' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
-  html += '<section class="item-data-section"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : '') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
+  html += '<div class="serie-actions-bar">' + (isTemplate ? '' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
+  html += '<section class="item-data-section' + (isTemplate ? ' template-information' : '') + '"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : '') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
   if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
   return html;
 }
@@ -1253,8 +1286,24 @@ function renderLayoutBlock(block, item, s, layoutIndex, columnsOverride) {
   }
   if (value === undefined || value === '') return '';
   var label = block.field === 'alias' ? 'Alias' : block.field === 'tags' ? 'Tags' : ((s.fields || []).find(function(field) { return field.id === block.field; }) || {}).label || block.field;
+  var fieldMeta = (s.fields || []).find(function(field) { return field.id === block.field; }) || {};
+  var isRelation = fieldMeta.type === 'relation';
   var titleStyle = 'font-family:' + (visual.titleFontFamily || visual.fontFamily || 'inherit') + ';font-size:' + (visual.titleFontSize || 11) + 'px;color:' + (visual.titleColor || '#aaa') + ';text-align:' + (visual.titleAlign || 'left') + ';';
   var contentStyle = 'font-family:' + (visual.contentFontFamily || visual.fontFamily || 'inherit') + ';font-size:' + (visual.contentFontSize || visual.fontSize || 14) + 'px;color:' + (visual.contentColor || visual.color || '#f0f0f0') + ';text-align:' + (visual.contentAlign || 'left') + ';white-space:' + (visual.wrap === false ? 'nowrap' : 'normal') + ';';
+  var repeatEntries = item.repeatData && item.repeatData[block.field];
+  if (repeatEntries && repeatEntries.length) {
+    return '<div class="layout-block layout-text layout-repeat' + (isRelation ? ' layout-relation' : '') + ' size-' + block.size + '"' + blockAttr + ' style="' + visualStyle + '"><span style="' + titleStyle + '">' + esc(label) + '</span><div class="repeat-list">' + repeatEntries.map(function(entry) {
+      var related = isRelation && (s.characters || []).find(function(candidate) {
+        return (entry.id && candidate.externalId && String(candidate.externalId) === String(entry.id)) ||
+          (entry.title && String(candidate.name || '').toLowerCase() === String(entry.title).toLowerCase());
+      });
+      var entryTitle = esc(entry.title || '');
+      if (related) entryTitle = '<a href="#" class="related-item-link" data-related-item="' + esc(related.id) + '" data-related-series="' + esc(s.id) + '" style="' + titleStyle + '">' + entryTitle + '</a>';
+      else if (isRelation && entry.url && /^https?:\/\//i.test(entry.url)) entryTitle = '<a href="' + esc(entry.url) + '" class="related-api-link" data-related-url="' + esc(entry.url) + '" data-related-id="' + esc(entry.id || '') + '" data-related-title="' + esc(entry.title || '') + '" style="' + titleStyle + '">' + entryTitle + '</a>';
+      else entryTitle = '<strong style="' + titleStyle + '">' + entryTitle + '</strong>';
+      return '<div class="repeat-entry">' + (entry.image ? '<img src="' + esc(entry.image) + '" alt="' + esc(entry.title || label) + '">' : '') + '<div class="repeat-entry-text">' + entryTitle + (entry.content ? '<div style="' + contentStyle + '">' + esc(entry.content).replace(/\n/g, '<br>') + '</div>' : '') + '</div></div>';
+    }).join('') + '</div></div>';
+  }
   return '<div class="layout-block' + (layoutIndex === undefined ? '' : ' direct-layout-block') + ' layout-text size-' + block.size + '"' + blockAttr + ' style="' + visualStyle + '"><span style="' + titleStyle + '">' + esc(label) + '</span><div style="' + contentStyle + '">' + esc(String(value)).replace(/\n/g, '<br>') + '</div></div>';
 }
 
@@ -1269,6 +1318,18 @@ function renderItemDetail(seriesId, itemId) {
   document.getElementById('btnChangeItemCover').addEventListener('click', function() { openEditCharModal(s.id, item.id); });
   document.getElementById('btnMoveItem').addEventListener('click', function() { openMoveItemModal(s.id, item.id); });
   document.getElementById('btnToggleItemView').addEventListener('click', function() { itemCompactView = !itemCompactView; renderItemDetail(s.id, item.id); });
+  document.querySelectorAll('#itemDetailContent .related-item-link').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      goToItem(this.dataset.relatedSeries, this.dataset.relatedItem);
+    });
+  });
+  document.querySelectorAll('#itemDetailContent .related-api-link').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      importRelatedApiItem(s.id, this.dataset.relatedUrl, this, this.dataset.relatedId);
+    });
+  });
   var itemIndex = (s.characters || []).findIndex(function(candidate) { return candidate.id === item.id; });
   var previous = itemIndex > 0 ? s.characters[itemIndex - 1] : null;
   var next = itemIndex >= 0 && itemIndex < s.characters.length - 1 ? s.characters[itemIndex + 1] : null;
@@ -1364,16 +1425,33 @@ function openFieldsModal(seriesId) {
   modal.classList.add('active');
 }
 
+function openSortModal(seriesId) {
+  var s = data.series.find(function(x) { return x.id === seriesId; });
+  if (!s) return;
+  currentModal = 'sort';
+  currentSeriesId = seriesId;
+  var options = '<option value="">Orden original</option><option value="name"' + (s.sort && s.sort.field === 'name' ? ' selected' : '') + '>Nombre del item</option><option value="alias"' + (s.sort && s.sort.field === 'alias' ? ' selected' : '') + '>Alias</option><option value="tags"' + (s.sort && s.sort.field === 'tags' ? ' selected' : '') + '>Tags</option>';
+  options += (s.fields || []).map(function(field) {
+    return '<option value="' + esc(field.id) + '"' + (s.sort && String(s.sort.field) === String(field.id) ? ' selected' : '') + '>' + esc(field.label) + '</option>';
+  }).join('');
+  document.getElementById('modalTitle').textContent = 'Orden de la lista';
+  document.getElementById('modalBody').innerHTML =
+    '<p class="modal-help">El orden se guardará para esta lista y se aplicará automáticamente al volver a abrirla o importar nuevos items.</p>' +
+    '<div class="form-group"><label>Campo de referencia</label><select id="sortField">' + options + '</select></div>' +
+    '<div class="form-group"><label>Dirección</label><select id="sortDirection"><option value="asc"' + (!s.sort || s.sort.direction !== 'desc' ? ' selected' : '') + '>Ascendente (A-Z / menor a mayor)</option><option value="desc"' + (s.sort && s.sort.direction === 'desc' ? ' selected' : '') + '>Descendente (Z-A / mayor a menor)</option></select></div>';
+  document.getElementById('modal').classList.add('active');
+}
+
 function fieldEditorRow(field) {
-  return '<div class="field-editor-row" data-field-id="' + esc(field.id) + '">' +
+  return '<div class="field-editor-row" data-field-id="' + esc(field.id) + '" data-field-source="' + esc(field.source || '') + '" data-repeat-id="' + esc(field.repeatId || '') + '" data-repeat-title="' + esc(field.repeatTitle || '') + '" data-repeat-image="' + esc(field.repeatImage || '') + '" data-repeat-content="' + esc(field.repeatContent || '') + '">' +
     '<input class="field-label" type="text" value="' + esc(field.label || '') + '" placeholder="Título (Ej. Director)">' +
-    '<select class="field-type"><option value="text"' + (field.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (field.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (field.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (field.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (field.type === 'url' ? ' selected' : '') + '>Enlace</option></select>' +
+    '<select class="field-type"><option value="text"' + (field.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (field.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (field.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (field.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (field.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (field.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option><option value="relation"' + (field.type === 'relation' ? ' selected' : '') + '>Relación entre items</option></select>' +
     '<button class="field-delete" type="button" title="Eliminar campo">×</button></div>';
 }
 
 function collectFields() {
   return Array.from(document.querySelectorAll('#fieldsEditor .field-editor-row')).map(function(row) {
-    return { id: row.dataset.fieldId || generateId(), label: row.querySelector('.field-label').value.trim(), type: row.querySelector('.field-type').value };
+    return { id: row.dataset.fieldId || generateId(), label: row.querySelector('.field-label').value.trim(), type: row.querySelector('.field-type').value, source: row.dataset.fieldSource || '', repeatId: row.dataset.repeatId || '', repeatTitle: row.dataset.repeatTitle || '', repeatImage: row.dataset.repeatImage || '', repeatContent: row.dataset.repeatContent || '' };
   }).filter(function(field) { return field.label; });
 }
 
@@ -1412,6 +1490,20 @@ function apiRepeatedToText(raw, mapping) {
     var content = mapping.repeatContent ? apiValueToText(valueAtPath(entry, mapping.repeatContent)) : '';
     return mapping.label + ' - ' + title + (content ? '\n' + content : '');
   }).filter(Boolean).join('\n\n');
+}
+
+function apiRepeatedData(raw, mapping) {
+  var entries = valueAtPath(raw, mapping.source);
+  if (!Array.isArray(entries)) return [];
+  return entries.map(function(entry) {
+    return {
+      id: mapping.repeatId ? apiValueToText(valueAtPath(entry, mapping.repeatId)) : '',
+      title: mapping.repeatTitle ? apiValueToText(valueAtPath(entry, mapping.repeatTitle)) : apiValueToText(entry),
+      content: mapping.repeatContent ? apiValueToText(valueAtPath(entry, mapping.repeatContent)) : '',
+      image: mapping.repeatImage ? apiValueToText(valueAtPath(entry, mapping.repeatImage)) : '',
+      url: apiValueToText(valueAtPath(entry, 'url')) || apiValueToText(valueAtPath(entry, 'href'))
+    };
+  }).filter(function(entry) { return entry.id || entry.title || entry.content || entry.image || entry.url; });
 }
 
 function collectApiImages(raw, preferredPath) {
@@ -1462,17 +1554,17 @@ function valueAtPath(value, path) {
 
 function apiMappingRow(mapping) {
   mapping = mapping || { source: '', label: '', type: 'text' };
-  return '<div class="api-mapping-row' + (mapping.type === 'repeat' ? ' api-repeat-row' : '') + '">' +
+  return '<div class="api-mapping-row' + (mapping.type === 'repeat' || mapping.type === 'relation' ? ' api-repeat-row' : '') + '">' +
     '<label class="api-map-control"><span>Ruta de datos</span><input class="api-source" value="' + esc(mapping.source) + '" placeholder="Ej: fields"></label>' +
     '<label class="api-map-control"><span>Nombre visible</span><input class="api-label" value="' + esc(mapping.label) + '" placeholder="Ej: Fields"></label>' +
-    '<label class="api-map-control"><span>Tipo de campo</span><select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (mapping.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option></select></label>' +
-    '<div class="api-repeat-options"><input class="api-repeat-title" value="' + esc(mapping.repeatTitle || '') + '" placeholder="Campo de título: field"><input class="api-repeat-content" value="' + esc(mapping.repeatContent || '') + '" placeholder="Campo adicional: description"></div>' +
+    '<label class="api-map-control"><span>Tipo de campo</span><select class="api-type"><option value="text"' + (mapping.type === 'text' ? ' selected' : '') + '>Texto</option><option value="textarea"' + (mapping.type === 'textarea' ? ' selected' : '') + '>Texto largo</option><option value="number"' + (mapping.type === 'number' ? ' selected' : '') + '>Número</option><option value="date"' + (mapping.type === 'date' ? ' selected' : '') + '>Fecha</option><option value="url"' + (mapping.type === 'url' ? ' selected' : '') + '>Enlace</option><option value="repeat"' + (mapping.type === 'repeat' ? ' selected' : '') + '>Lista repetida</option><option value="relation"' + (mapping.type === 'relation' ? ' selected' : '') + '>Relación entre items</option></select></label>' +
+    '<div class="api-repeat-options"><input class="api-repeat-id" value="' + esc(mapping.repeatId || '') + '" placeholder="Referencia: id (opcional)"><input class="api-repeat-title" value="' + esc(mapping.repeatTitle || '') + '" placeholder="Campo de título: field"><input class="api-repeat-image" value="' + esc(mapping.repeatImage || '') + '" placeholder="Campo de imagen: image"><input class="api-repeat-content" value="' + esc(mapping.repeatContent || '') + '" placeholder="Campo adicional: description"></div>' +
     '<button class="field-delete api-delete" type="button">×</button></div>';
 }
 
 function collectApiMappings() {
   return Array.from(document.querySelectorAll('.api-mapping-row')).map(function(row) {
-    return { source: row.querySelector('.api-source').value.trim(), label: row.querySelector('.api-label').value.trim(), type: row.querySelector('.api-type').value, repeatTitle: row.querySelector('.api-repeat-title') ? row.querySelector('.api-repeat-title').value.trim() : '', repeatContent: row.querySelector('.api-repeat-content') ? row.querySelector('.api-repeat-content').value.trim() : '' };
+    return { source: row.querySelector('.api-source').value.trim(), label: row.querySelector('.api-label').value.trim(), type: row.querySelector('.api-type').value, repeatId: row.querySelector('.api-repeat-id') ? row.querySelector('.api-repeat-id').value.trim() : '', repeatTitle: row.querySelector('.api-repeat-title') ? row.querySelector('.api-repeat-title').value.trim() : '', repeatImage: row.querySelector('.api-repeat-image') ? row.querySelector('.api-repeat-image').value.trim() : '', repeatContent: row.querySelector('.api-repeat-content') ? row.querySelector('.api-repeat-content').value.trim() : '' };
   }).filter(function(mapping) { return mapping.source && mapping.label; });
 }
 
@@ -1496,6 +1588,10 @@ function inferApiConfig(sample) {
       if (!imagePath && /(image|cover|poster|thumbnail|avatar|photo)/i.test(lower)) {
         if (typeof child === 'string') imagePath = nextPath;
         else if (child && typeof child.url === 'string') imagePath = nextPath + '.url';
+        else if (Array.isArray(child) && child[0] && typeof child[0] === 'object') {
+          var nestedImageKey = ['href', 'url', 'src', 'image'].find(function(imageKey) { return typeof child[0][imageKey] === 'string'; });
+          if (nestedImageKey) imagePath = nextPath + '[0].' + nestedImageKey;
+        }
       }
       if (!tagsPath && /^(tags?|genres?|categories?|types?)$/i.test(key) && (Array.isArray(child) || typeof child === 'string')) tagsPath = nextPath;
       if (child === null || child === undefined || typeof child === 'string' || typeof child === 'number' || typeof child === 'boolean' || child instanceof Date) {
@@ -1571,10 +1667,8 @@ function saveCurrentApiConfig() {
 
 function openApiImporterModal() {
   currentModal = 'apiImport'; currentSeriesId = null; apiPreviewData = null; apiConfigRestored = false;
-  document.getElementById('modal').classList.add('api-modal');
-  document.getElementById('modalTitle').textContent = 'Importar datos desde API';
-  document.getElementById('btnSave').textContent = 'Importar lista';
-  document.getElementById('modalBody').innerHTML =
+  var apiPage = document.getElementById('apiImporterContent');
+  apiPage.innerHTML = '<div class="api-import-page"><header class="api-page-header"><button class="btn btn-ghost" id="apiPageBack">&#8592; Volver</button><div><h2>Importar datos desde API</h2><p>Configura la fuente y revisa los datos antes de importarlos</p></div><button class="btn" id="apiPageImport">Importar datos</button></header><div class="api-page-content">' +
     '<p class="modal-help">Solo se importarán los campos que configures. Usa rutas con puntos, por ejemplo <code>data.results</code>.</p>' +
     '<div class="api-section-title">1. Fuente y destino</div>' +
     '<div class="form-group"><label>Fuente preestablecida</label><select id="apiPreset"><option value="">API personalizada</option><option value="digimon">Digimon API</option></select><button class="btn btn-ghost btn-sm api-copy-config" id="btnCopyApiConfig" type="button" disabled>Copiar configuración anterior</button></div>' +
@@ -1590,10 +1684,12 @@ function openApiImporterModal() {
     '<label class="api-auto-toggle"><input id="apiFetchDetails" type="checkbox"> Cargar el detalle completo de cada resultado <span title="Puede realizar muchas solicitudes">ⓘ</span></label>' +
     '<label class="api-auto-toggle"><input id="apiUploadImages" type="checkbox" checked> Copiar imágenes a Cloudinary</label>' +
     '<label class="api-auto-toggle"><input id="apiAutoFields" type="checkbox" checked> Detectar todos los campos automáticamente</label>' +
-    '<div class="api-section-title">4. Campos que se guardarán</div><div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div><p class="api-repeat-help">Usa <strong>Lista repetida</strong> para arrays como <code>fields</code>. Ejemplo: origen <code>fields</code>, título <code>field</code>, contenido <code>description</code>.</p>' +
+    '<div class="api-section-title">4. Campos que se guardarán</div><div class="api-fields-heading"><label>Campos adicionales</label><button class="btn btn-ghost btn-sm" id="btnAddApiField">+ Campo</button></div><p class="api-repeat-help">Usa <strong>Lista repetida</strong> para arrays como <code>fields</code>. Para enlazar resultados usa <strong>Relación entre items</strong>; por ejemplo <code>priorEvolutions</code>, referencia <code>id</code>, título <code>digimon</code>, imagen <code>image</code> y contenido <code>condition</code>.</p>' +
     '<div id="apiMappings">' + apiMappingRow({ source: 'description', label: 'Descripción', type: 'textarea' }) + '</div>' +
     '<button class="btn btn-ghost api-preview-btn" id="btnApiPreview">Probar conexión y previsualizar</button>' +
-    '<div class="api-preview" id="apiPreview"></div>';
+    '<div class="api-preview" id="apiPreview"></div></div></div>';
+  document.getElementById('apiPageBack').addEventListener('click', function() { closeModal(); goHome(); });
+  document.getElementById('apiPageImport').addEventListener('click', saveModal);
   document.getElementById('btnAddApiField').addEventListener('click', function() { document.getElementById('apiMappings').insertAdjacentHTML('beforeend', apiMappingRow()); });
   document.getElementById('apiPreset').addEventListener('change', function() {
     var preset = API_PRESETS[this.value];
@@ -1620,12 +1716,13 @@ function openApiImporterModal() {
   document.getElementById('apiTargetList').addEventListener('change', function() {
     document.getElementById('apiListName').disabled = this.value !== '__new__';
   });
-  document.getElementById('modal').classList.add('active');
+  showPage('pageApiImporter');
 }
 
 async function previewApiImport() {
   var url = document.getElementById('apiUrl').value.trim();
   var preview = document.getElementById('apiPreview');
+  var manuallySelectedImagePath = document.getElementById('apiImagePath').value.trim();
   if (!url) return alert('Escribe la URL de la API');
   saveCurrentApiConfig();
   preview.textContent = 'Consultando API...';
@@ -1647,6 +1744,7 @@ async function previewApiImport() {
     }
     apiPreviewData = { json: json, collection: collection, mappings: collectApiMappings() };
     if (document.getElementById('apiAutoFields').checked && collection[0]) applyApiAutoConfig(collection[0]);
+    if (manuallySelectedImagePath && manuallySelectedImagePath !== 'image') document.getElementById('apiImagePath').value = manuallySelectedImagePath;
     apiPreviewData.mappings = collectApiMappings();
     saveCurrentApiConfig();
     var suggestions = collection[0] ? inferApiConfig(collection[0]).mappings.slice(0, 18) : [];
@@ -1677,21 +1775,40 @@ async function importApiData() {
   // Se usa la configuración capturada al previsualizar para que los campos
   // detectados no se pierdan entre la consulta y la importación.
   var mappings = apiPreviewData.mappings || collectApiMappings();
+  var importedApiConfig = {
+    url: document.getElementById('apiUrl').value.trim(),
+    collection: document.getElementById('apiCollectionPath').value.trim(),
+    name: namePath,
+    image: imagePath,
+    tags: tagsPath,
+    fetchDetails: document.getElementById('apiFetchDetails').checked,
+    uploadImages: document.getElementById('apiUploadImages').checked,
+    mappings: mappings
+  };
   var fields = mappings.map(function(mapping) {
     if (targetList) {
       var existing = (targetList.fields || []).find(function(field) { return field.source === mapping.source || String(field.label || '').toLowerCase() === String(mapping.label || '').toLowerCase(); });
-      if (existing) return existing;
+      if (existing) {
+        existing.type = mapping.type;
+        existing.source = mapping.source;
+        existing.repeatId = mapping.repeatId || '';
+        existing.repeatTitle = mapping.repeatTitle || '';
+        existing.repeatImage = mapping.repeatImage || '';
+        existing.repeatContent = mapping.repeatContent || '';
+        return existing;
+      }
     }
-    return { id: generateId(), label: mapping.label, type: mapping.type, source: mapping.source };
+    return { id: generateId(), label: mapping.label, type: mapping.type, source: mapping.source, repeatId: mapping.repeatId || '', repeatTitle: mapping.repeatTitle || '', repeatImage: mapping.repeatImage || '', repeatContent: mapping.repeatContent || '' };
   });
   if (targetList) {
     if (!targetList.fields) targetList.fields = [];
     fields.forEach(function(field) { if (!targetList.fields.some(function(existing) { return existing.id === field.id; })) targetList.fields.push(field); });
   }
   apiImporting = true;
-  document.getElementById('btnSave').disabled = true;
+  var importButton = document.getElementById('apiPageImport') || document.getElementById('btnSave');
+  importButton.disabled = true;
   var uploadImages = document.getElementById('apiUploadImages').checked;
-  document.getElementById('btnSave').textContent = uploadImages ? 'Copiando imágenes...' : 'Importando...';
+  importButton.textContent = uploadImages ? 'Copiando imágenes...' : 'Importando...';
   var targetFolder = sanitizePublicId(name) || 'multibestiario';
   var items = [];
   for (var index = 0; index < apiPreviewData.collection.length; index++) {
@@ -1705,19 +1822,89 @@ async function importApiData() {
       uploadedImages.push(uploadImages ? await uploadRemoteImage(images[imageIndex], sanitizePublicId(itemName) + '_' + (imageIndex + 1), targetFolder) : images[imageIndex]);
     }
     document.getElementById('apiPreview').textContent = (uploadImages ? 'Copiando imágenes: ' : 'Importando: ') + (index + 1) + ' / ' + apiPreviewData.collection.length;
-    items.push({ id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: Object.fromEntries(fields.map(function(field, fieldIndex) { var mapping = mappings[fieldIndex]; return [field.id, mapping && mapping.type === 'repeat' ? apiRepeatedToText(raw, mapping) : apiValueToText(valueAtPath(raw, field.source))]; })) });
+    var importedValues = {};
+    var importedRepeatData = {};
+    fields.forEach(function(field, fieldIndex) {
+      var mapping = mappings[fieldIndex];
+      importedValues[field.id] = mapping && (mapping.type === 'repeat' || mapping.type === 'relation') ? apiRepeatedToText(raw, mapping) : apiValueToText(valueAtPath(raw, field.source));
+      if (mapping && (mapping.type === 'repeat' || mapping.type === 'relation')) importedRepeatData[field.id] = apiRepeatedData(raw, mapping);
+    });
+    items.push({ id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: importedValues, repeatData: importedRepeatData, externalId: apiValueToText(raw.id), externalUrl: apiValueToText(raw.href) || apiValueToText(raw.url) });
   }
   var importedList;
   if (targetList) {
+    targetList.apiConfig = importedApiConfig;
     targetList.characters = (targetList.characters || []).concat(items);
     targetList._open = true;
     importedList = targetList;
   } else {
-    importedList = { id: generateId(), name: name, cover: items[0] ? items[0].image : '', folderId: currentFolderId || null, description: '', characters: items, fields: fields, checkLabel: 'Check', tags: [], _open: true };
+    importedList = { id: generateId(), name: name, cover: items[0] ? items[0].image : '', folderId: currentFolderId || null, description: '', characters: items, fields: fields, apiConfig: importedApiConfig, checkLabel: 'Check', tags: [], _open: true };
     data.series.push(importedList);
   }
-  saveData(); apiPreviewData = null; apiImporting = false; document.getElementById('btnSave').disabled = false; document.getElementById('btnSave').textContent = 'Guardar'; closeModal(); goToSerie(importedList.id);
+  saveData(); apiPreviewData = null; apiImporting = false; importButton.disabled = false; importButton.textContent = 'Importar datos'; closeModal(); goToSerie(importedList.id);
   alert('Importados ' + items.length + ' items en "' + name + '"');
+}
+
+async function importRelatedApiItem(seriesId, url, link, externalId) {
+  var list = data.series.find(function(series) { return series.id === seriesId; });
+  if (!list || !url || !/^https?:\/\//i.test(url)) return;
+  var existing = (list.characters || []).find(function(item) {
+    return item.externalUrl === url || (externalId && item.externalId && String(item.externalId) === String(externalId));
+  });
+  if (existing) return goToItem(list.id, existing.id);
+  if (link) {
+    link.textContent = 'Cargando...';
+    link.classList.add('is-loading');
+  }
+  try {
+    var response = await fetch(url);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    var raw = await response.json();
+    var config = list.apiConfig || data.apiConfigs['preset:digimon'];
+    if (!config) {
+      var inferred = inferApiConfig(raw);
+      config = { name: inferred.namePath, image: inferred.imagePath, tags: inferred.tagsPath, mappings: inferred.mappings, uploadImages: false };
+    }
+    var mappings = config.mappings || [];
+    var fields = mappings.map(function(mapping) {
+      var existingField = (list.fields || []).find(function(field) { return field.source === mapping.source || String(field.label || '').toLowerCase() === String(mapping.label || '').toLowerCase(); });
+      if (existingField) return existingField;
+      return { id: generateId(), label: mapping.label, type: mapping.type || 'text', source: mapping.source, repeatId: mapping.repeatId || '', repeatTitle: mapping.repeatTitle || '', repeatImage: mapping.repeatImage || '', repeatContent: mapping.repeatContent || '' };
+    });
+    if (!list.fields) list.fields = [];
+    fields.forEach(function(field) {
+      if (!list.fields.some(function(existingField) { return existingField.id === field.id; })) list.fields.push(field);
+    });
+    var namePath = config.name || 'name';
+    var imagePath = config.image || '';
+    var tagsPath = config.tags || '';
+    var itemName = apiValueToText(valueAtPath(raw, namePath)) || 'Sin nombre';
+    var images = collectApiImages(raw, imagePath);
+    var uploadedImages = [];
+    for (var imageIndex = 0; imageIndex < images.length; imageIndex++) {
+      uploadedImages.push(config.uploadImages ? await uploadRemoteImage(images[imageIndex], sanitizePublicId(itemName) + '_' + (imageIndex + 1), sanitizePublicId(list.name) || 'multibestiario') : images[imageIndex]);
+    }
+    var tags = valueAtPath(raw, tagsPath);
+    if (!Array.isArray(tags)) tags = tags ? String(tags).split(',') : [];
+    var values = {};
+    var repeatData = {};
+    fields.forEach(function(field, fieldIndex) {
+      var mapping = mappings[fieldIndex] || field;
+      values[field.id] = mapping.type === 'repeat' || mapping.type === 'relation' ? apiRepeatedToText(raw, mapping) : apiValueToText(valueAtPath(raw, field.source));
+      if (mapping.type === 'repeat' || mapping.type === 'relation') repeatData[field.id] = apiRepeatedData(raw, mapping);
+    });
+    var item = { id: generateId(), name: itemName, alias: '', image: uploadedImages[0] || '', images: uploadedImages, checked: false, tags: tags.map(function(tag) { return apiValueToText(tag).trim().toLowerCase(); }).filter(Boolean), values: values, repeatData: repeatData, externalId: apiValueToText(raw.id), externalUrl: url };
+    list.characters.push(item);
+    if (!list.cover && item.image) list.cover = item.image;
+    saveData();
+    goToItem(list.id, item.id);
+  } catch (error) {
+    if (link) {
+      link.textContent = link.dataset.relatedTitle || 'Abrir en la API';
+      link.classList.remove('is-loading');
+    }
+    alert('No se pudo importar el item relacionado: ' + error.message);
+  }
 }
 
 /* ===== MODALS ===== */
@@ -1820,6 +2007,7 @@ function openEditCharModal(seriesId, charId) {
 }
 
 function closeModal() {
+  var closingApiPage = currentModal === 'apiImport';
   document.getElementById('modal').classList.remove('active');
   document.getElementById('modal').classList.remove('api-modal');
   currentModal = null;
@@ -1827,6 +2015,7 @@ function closeModal() {
   currentCharId = null;
   tempImageUrl = null;
   tempCoverUrl = null;
+  if (closingApiPage && document.getElementById('pageApiImporter').classList.contains('active')) showPage('pageHome');
 }
 
 function saveModal() {
@@ -1879,6 +2068,16 @@ function saveModal() {
     list.fields = collectFields();
     list.characters.forEach(function(item) { if (!item.values) item.values = {}; });
     saveData(); renderSerieDetail(currentSeriesId); closeModal();
+  }
+  else if (currentModal === 'sort') {
+    var sortedList = data.series.find(function(x) { return x.id === currentSeriesId; });
+    if (!sortedList) return;
+    var sortField = document.getElementById('sortField').value;
+    sortedList.sort = sortField ? { field: sortField, direction: document.getElementById('sortDirection').value } : null;
+    applyListSort(sortedList);
+    saveData();
+    renderSerieDetail(currentSeriesId);
+    closeModal();
   }
   else if (currentModal === 'editSeries') {
     var s = data.series.find(function(x) { return x.id === currentSeriesId; });
@@ -2223,9 +2422,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     if (e.target.closest('.style-delete')) e.target.closest('.style-block-row').remove();
   });
+  document.addEventListener('click', function(e) {
+    var apiDelete = e.target.closest('#apiImporterContent .api-mapping-row .api-delete');
+    if (apiDelete) apiDelete.closest('.api-mapping-row').remove();
+  });
+  document.addEventListener('change', function(e) {
+    if (e.target.closest('#apiImporterContent') && e.target.classList.contains('api-type')) e.target.closest('.api-mapping-row').classList.toggle('api-repeat-row', e.target.value === 'repeat' || e.target.value === 'relation');
+  });
   document.getElementById('modal').addEventListener('change', function(e) {
     if (!e.target.classList.contains('api-type')) return;
-    e.target.closest('.api-mapping-row').classList.toggle('api-repeat-row', e.target.value === 'repeat');
+    e.target.closest('.api-mapping-row').classList.toggle('api-repeat-row', e.target.value === 'repeat' || e.target.value === 'relation');
   });
 
   document.addEventListener('keydown', function(e) {
