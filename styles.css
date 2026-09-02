@@ -677,6 +677,7 @@ body {
   position: relative;
   min-height: var(--canvas-height, 640px);
   height: var(--canvas-height, 640px);
+  overflow: visible;
 }
 
 .item-layout.free-layout .layout-block {

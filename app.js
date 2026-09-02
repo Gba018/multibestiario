@@ -1100,17 +1100,17 @@ function updateFullStyle(event) {
     contentAlign: document.getElementById('fullContentAlign').value,
     wrap: document.getElementById('fullWrap').checked
   };
-  var x = Math.max(0, Math.min(100, Number(document.getElementById('fullX').value) || 0));
-  var y = Math.max(0, Math.min(100, Number(document.getElementById('fullY').value) || 0));
-  var width = Math.max(1, Math.min(100 - x, Number(document.getElementById('fullWidth').value) || 30));
-  var height = Math.max(1, Math.min(100 - y, Number(document.getElementById('fullHeight').value) || 18));
+  var x = Math.max(0, Number(document.getElementById('fullX').value) || 0);
+  var y = Math.max(0, Number(document.getElementById('fullY').value) || 0);
+  var width = Math.max(1, Number(document.getElementById('fullWidth').value) || 30);
+  var height = Math.max(1, Number(document.getElementById('fullHeight').value) || 18);
   var lockAspect = document.getElementById('fullLockAspect').checked;
   var changedId = event && event.target ? event.target.id : '';
   if (lockAspect && !previousVisual.lockAspect) block.aspectRatio = width / Math.max(1, height);
   if (lockAspect && (changedId === 'fullWidth' || changedId === 'fullHeight' || changedId === 'fullLockAspect')) {
     var ratio = Number(block.aspectRatio) || width / Math.max(1, height);
-    if (changedId === 'fullHeight') width = Math.min(100 - x, height * ratio);
-    else height = Math.min(100 - y, width / ratio);
+    if (changedId === 'fullHeight') width = height * ratio;
+    else height = width / ratio;
   }
   block.x = x;
   block.y = y;
@@ -1138,6 +1138,8 @@ function renderFullStylePreview(s) {
     if (item.values[field.id] === undefined || item.values[field.id] === '') item.values[field.id] = 'Contenido de ejemplo';
   });
   preview.innerHTML = renderItemPageMarkup(s, item, styleEditorDraft, true);
+  adaptInformationLayout(preview);
+  autoSizeInformationContainer(preview);
   var grid = preview.querySelector('.item-layout');
   if (grid) {
     grid.addEventListener('dragover', function(e) {
@@ -1160,8 +1162,8 @@ function renderFullStylePreview(s) {
       var rect = grid.getBoundingClientRect();
       var width = Number(dragged.width) || 30;
       var height = Number(dragged.height) || 18;
-      var targetX = Math.max(0, Math.min(100 - width, (e.clientX - rect.left) / rect.width * 100 - width / 2));
-      var targetY = Math.max(0, Math.min(100 - height, (e.clientY - rect.top) / rect.height * 100 - height / 2));
+      var targetX = Math.max(0, (e.clientX - rect.left) / rect.width * 100 - width / 2);
+      var targetY = Math.max(0, (e.clientY - rect.top) / rect.height * 100 - height / 2);
       var snap = 1.5;
       styleEditorDraft.blocks.forEach(function(other, index) {
         if (index === fromIndex) return;
@@ -1170,8 +1172,8 @@ function renderFullStylePreview(s) {
         [ox, ox + ow, ox - width, ox + ow - width, ox + (ow - width) / 2].forEach(function(value) { if (Math.abs(targetX - value) <= snap) targetX = value; });
         [oy, oy + oh, oy - height, oy + oh - height, oy + (oh - height) / 2].forEach(function(value) { if (Math.abs(targetY - value) <= snap) targetY = value; });
       });
-      targetX = Math.max(0, Math.min(100 - width, targetX));
-      targetY = Math.max(0, Math.min(100 - height, targetY));
+      targetX = Math.max(0, targetX);
+      targetY = Math.max(0, targetY);
       dragged.x = targetX;
       dragged.y = targetY;
       styleEditorSelected = fromIndex;
@@ -1227,7 +1229,7 @@ function renderItemPageMarkup(s, item, layout, isTemplate, isCompact) {
     nav = '<div class="item-navigator"><button class="btn btn-ghost" id="btnPrevItem" title="Item anterior" aria-label="Item anterior"' + (previous ? '' : ' disabled') + '>&#8249;</button><button class="btn btn-ghost" id="btnNextItem" title="Item siguiente" aria-label="Item siguiente"' + (next ? '' : ' disabled') + '>&#8250;</button></div>';
   }
   html += '<div class="serie-actions-bar">' + (isTemplate ? '' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
-  html += '<section class="item-data-section' + (isTemplate ? ' template-information' : '') + '"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : '') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
+  html += '<section class="item-data-section' + (isTemplate ? ' template-information' : '') + '"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : ' auto-content-height') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
   if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
   return html;
 }
@@ -1265,10 +1267,10 @@ function renderStyleEditorPreview(s) {
 function renderLayoutBlock(block, item, s, layoutIndex, columnsOverride) {
   var layout = styleEditorDraft && layoutIndex !== undefined ? styleEditorDraft : getListLayout(s);
   normalizeFreeLayout(layout);
-  var x = Math.max(0, Math.min(100, Number(block.x) || 0));
-  var y = Math.max(0, Math.min(100, Number(block.y) || 0));
-  var width = Math.max(1, Math.min(100 - x, Number(block.width) || 30));
-  var height = Math.max(1, Math.min(100 - y, Number(block.height) || 18));
+  var x = Math.max(0, Number(block.x) || 0);
+  var y = Math.max(0, Number(block.y) || 0);
+  var width = Math.max(1, Number(block.width) || 30);
+  var height = Math.max(1, Number(block.height) || 18);
   var freeStyle = 'left:' + x + '%;top:' + y + '%;width:' + width + '%;height:' + height + '%;';
   var visual = block.style || {};
   var visualStyle = 'background-color:' + (visual.background || '#242424') + ';color:' + (visual.color || '#f0f0f0') + ';font-family:' + (visual.fontFamily || 'inherit') + ';font-size:' + (visual.fontSize || 14) + 'px;' + freeStyle;
@@ -1313,6 +1315,8 @@ function renderItemDetail(seriesId, itemId) {
   if (!s || !item) return goToSerie(seriesId);
   var layout = getListLayout(s);
   document.getElementById('itemDetailContent').innerHTML = renderItemPageMarkup(s, item, layout, false, itemCompactView);
+  adaptInformationLayout(document.getElementById('itemDetailContent'));
+  autoSizeItemInformation();
   document.getElementById('btnBackItem').addEventListener('click', function() { goToSerie(s.id); });
   document.getElementById('btnEditItem').addEventListener('click', function() { openEditCharModal(s.id, item.id); });
   document.getElementById('btnChangeItemCover').addEventListener('click', function() { openEditCharModal(s.id, item.id); });
@@ -1336,6 +1340,63 @@ function renderItemDetail(seriesId, itemId) {
   if (previous) document.getElementById('btnPrevItem').addEventListener('click', function() { goToItem(s.id, previous.id); });
   if (next) document.getElementById('btnNextItem').addEventListener('click', function() { goToItem(s.id, next.id); });
   document.getElementById('btnDelItem').addEventListener('click', function() { if (confirm('Eliminar este item?')) { deleteCharacter(s.id, item.id); goToSerie(s.id); } });
+}
+
+function autoSizeItemInformation() {
+  autoSizeInformationContainer(document.getElementById('itemDetailContent'));
+}
+
+function adaptInformationLayout(root) {
+  if (!root) return;
+  var grid = root.querySelector('.item-layout');
+  if (!grid) return;
+  var baseHeight = grid.clientHeight || 640;
+  var blocks = Array.from(grid.children).filter(function(block) { return block.classList.contains('layout-block'); });
+  var entries = blocks.map(function(block) {
+    var top = (parseFloat(block.style.top) || 0) / 100 * baseHeight;
+    var height = (parseFloat(block.style.height) || 18) / 100 * baseHeight;
+    var left = parseFloat(block.style.left) || 0;
+    var width = parseFloat(block.style.width) || 30;
+    if (block.classList.contains('layout-text')) {
+      block.style.height = 'auto';
+      block.style.minHeight = height + 'px';
+    }
+    block.style.top = top + 'px';
+    return { element: block, top: top, height: height, left: left, right: left + width };
+  }).sort(function(a, b) { return a.top - b.top || a.left - b.left; });
+  entries.forEach(function(entry, index) {
+    var bottom = entry.top + Math.max(entry.height, entry.element.offsetHeight, entry.element.scrollHeight);
+    for (var nextIndex = index + 1; nextIndex < entries.length; nextIndex++) {
+      var next = entries[nextIndex];
+      var overlapsHorizontally = entry.left < next.right && entry.right > next.left;
+      if (overlapsHorizontally && next.top >= entry.top) {
+        var shiftedTop = Math.max(next.top, bottom + 12);
+        next.element.style.top = shiftedTop + 'px';
+        next.top = shiftedTop;
+      }
+    }
+  });
+  var maxBottom = entries.reduce(function(max, entry) {
+    return Math.max(max, entry.element.offsetTop + Math.max(entry.element.offsetHeight, entry.element.scrollHeight));
+  }, 0);
+  if (maxBottom > 0) {
+    var finalHeight = Math.max(baseHeight, Math.ceil(maxBottom + 24));
+    grid.style.setProperty('height', finalHeight + 'px', 'important');
+    grid.style.setProperty('min-height', finalHeight + 'px', 'important');
+  }
+}
+
+function autoSizeInformationContainer(root) {
+  if (!root) return;
+  var grid = root.querySelector('.auto-content-height, .template-information > .item-layout');
+  if (!grid) return;
+  var maxBottom = 0;
+  Array.from(grid.children).forEach(function(block) {
+    maxBottom = Math.max(maxBottom, block.offsetTop + Math.max(block.offsetHeight, block.scrollHeight));
+  });
+  var nextHeight = Math.max(240, Math.ceil(maxBottom + 24));
+  grid.style.setProperty('height', nextHeight + 'px', 'important');
+  grid.style.setProperty('min-height', nextHeight + 'px', 'important');
 }
 
 function toggleCheck(seriesId, charId) {
