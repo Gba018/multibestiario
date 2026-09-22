@@ -2,7 +2,9 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="color-scheme" content="dark">
 <title>MultiBestiario</title>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -13,7 +15,7 @@
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h2>MultiBestiario</h2>
-    <div class="sidebar-close" id="btnCloseSidebar">&times;</div>
+    <button class="sidebar-close" id="btnCloseSidebar" type="button" aria-label="Cerrar menú">&times;</button>
   </div>
 
   <div class="sidebar-section">
@@ -32,6 +34,20 @@
       <span class="icon">&#128194;</span><span>Importar datos (JSON)</span>
     </div>
   </div>
+
+  <div class="sidebar-account" id="sidebarAccount" aria-live="polite">
+    <div class="sidebar-section-title">Cuenta</div>
+    <div class="sidebar-account-card">
+      <div class="sidebar-account-info">
+        <span class="sidebar-account-avatar" id="sidebarAccountAvatar" aria-hidden="true">?</span>
+        <div class="sidebar-account-copy">
+          <strong id="sidebarAccountName">Modo local</strong>
+          <span id="sidebarAccountStatus">Datos guardados en este dispositivo</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost sidebar-account-action" id="btnSidebarAuth" type="button" aria-label="Iniciar sesión">Iniciar sesión</button>
+    </div>
+  </div>
 </div>
 
 <div class="cloud-auth-overlay" id="cloudAuthOverlay">
@@ -43,8 +59,8 @@
       <input id="cloudAuthPassword" type="password" placeholder="Contraseña" autocomplete="current-password" required>
       <button class="btn" type="submit">Iniciar sesión</button>
     </form>
-    <button class="btn btn-ghost" id="cloudAuthRegister">Crear cuenta nueva</button>
-    <button class="btn btn-ghost" id="cloudAuthContinue">Continuar sin sincronizar</button>
+    <button class="btn btn-ghost" id="cloudAuthRegister" type="button">Crear cuenta nueva</button>
+    <button class="btn btn-ghost" id="cloudAuthContinue" type="button">Continuar sin sincronizar</button>
   </div>
 </div>
 
@@ -52,12 +68,12 @@
 <div class="header">
   <div class="header-inner">
     <div class="header-left">
-      <button class="btn btn-ghost btn-sm" id="btnMenu">&#9776;</button>
-      <h1 id="appHomeTitle" title="Ir al inicio">MultiBestiario</h1>
+      <button class="btn btn-ghost btn-sm" id="btnMenu" type="button" aria-label="Abrir menú" aria-controls="sidebar" aria-expanded="false">&#9776;</button>
+      <h1 id="appHomeTitle" title="Ir al inicio" tabindex="0">MultiBestiario</h1>
     </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-ghost" id="btnAddFolder">+ Carpeta</button>
-      <button class="btn" id="btnAddSerie">+ Lista</button>
+    <div class="header-actions">
+      <button class="btn btn-ghost header-action" id="btnAddFolder" type="button" aria-label="Crear carpeta" title="Crear carpeta"><span class="header-action-icon" aria-hidden="true">&#128193;</span><span class="header-action-label">Carpeta</span></button>
+      <button class="btn header-action" id="btnAddSerie" type="button" aria-label="Crear lista" title="Crear lista"><span class="header-action-icon" aria-hidden="true">＋</span><span class="header-action-label">Lista</span></button>
     </div>
   </div>
 </div>

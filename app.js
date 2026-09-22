@@ -8,6 +8,9 @@ var cloudUser = null;
 var cloudSyncTimer = null;
 var cloudSyncReady = false;
 var cloudSyncInProgress = false;
+var cloudSyncUnavailable = false;
+var cloudInitPromise = null;
+var cloudAuthStateBound = false;
 var isPublicView = false;
 
 /* ===== STATE ===== */
@@ -124,17 +127,24 @@ function scheduleCloudSave() {
 }
 
 async function saveDataToCloud() {
-  if (cloudSyncInProgress || !cloudSyncReady || !cloudUser) return;
+  if (cloudSyncInProgress || !cloudSyncReady || !cloudUser || !supabaseClient) return;
   cloudSyncInProgress = true;
-  var result = await supabaseClient.from('user_data').upsert({ user_id: cloudUser.id, data: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-  cloudSyncInProgress = false;
-  if (result.error) console.error('No se pudo sincronizar con Supabase:', result.error.message);
-  if (!result.error) {
+  try {
+    var result = await supabaseClient.from('user_data').upsert({ user_id: cloudUser.id, data: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (result.error) {
+      if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+      return;
+    }
     var shares = await supabaseClient.from('public_shares').select('id,entity_type,entity_id').eq('owner_id', cloudUser.id).eq('is_public', true);
     if (!shares.error && shares.data) shares.data.forEach(function(share) {
       var snapshot = publicSnapshot(share.entity_type, share.entity_id);
       if (snapshot) supabaseClient.from('public_shares').update({ snapshot: snapshot, updated_at: new Date().toISOString() }).eq('id', share.id);
     });
+    if (shares.error && isCloudNetworkError(shares.error)) disableCloudSync(cloudErrorMessage(shares.error));
+  } catch (error) {
+    if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+  } finally {
+    cloudSyncInProgress = false;
   }
 }
 
@@ -176,7 +186,11 @@ async function loadPublicShare() {
   var token = new URLSearchParams(window.location.search).get('public');
   if (!token || !supabaseClient) return false;
   var result = await supabaseClient.from('public_shares').select('snapshot').eq('share_token', token).eq('is_public', true).maybeSingle();
-  if (result.error || !result.data) return false;
+  if (result.error) {
+    if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+    return false;
+  }
+  if (!result.data) return false;
   data = result.data.snapshot;
   if (!data.folders) data.folders = [];
   if (!data.allTags) data.allTags = [];
@@ -218,37 +232,258 @@ function hideCloudAuth() {
   if (overlay) overlay.classList.add('hidden');
 }
 
+function showCloudAuth() {
+  var overlay = document.getElementById('cloudAuthOverlay');
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function isCloudNetworkError(error) {
+  var message = String(error && (error.message || error.name) || error || '').toLowerCase();
+  return !message || /failed to fetch|network|fetch|dns|name_not_resolved|connection|offline|timeout|abort/.test(message) || (error && error.status === 0);
+}
+
+function disableCloudSync(message) {
+  cloudSyncReady = false;
+  cloudSyncInProgress = false;
+  cloudUser = null;
+  cloudSyncUnavailable = true;
+  clearTimeout(cloudSyncTimer);
+  document.body.classList.add('cloud-offline');
+  var authMessage = document.getElementById('cloudAuthMessage');
+  if (authMessage && message) authMessage.textContent = message;
+  updateSidebarAccount();
+  // La nube es opcional: si Supabase no resuelve, la aplicación continúa
+  // usando localStorage en lugar de bloquear la pantalla o reintentar sin fin.
+  hideCloudAuth();
+}
+
+function cloudErrorMessage(error, fallback) {
+  if (isCloudNetworkError(error)) return 'La sincronización en la nube no está disponible. Tus datos se guardan localmente en este dispositivo.';
+  return fallback || 'No se pudo conectar con Supabase. Verifica la URL, la clave pública y la configuración del proyecto.';
+}
+
+function authErrorMessage(error) {
+  var message = String(error && error.message || '').toLowerCase();
+  if (message.indexOf('invalid login credentials') !== -1) return 'El correo o la contraseña no coinciden. Si cambiaste de proyecto Supabase, crea la cuenta nuevamente en el proyecto actual.';
+  if (message.indexOf('email not confirmed') !== -1) return 'Confirma tu correo electrónico desde el mensaje que envió Supabase y vuelve a intentarlo.';
+  if (message.indexOf('too many requests') !== -1 || message.indexOf('rate limit') !== -1) return 'Demasiados intentos. Espera unos minutos antes de volver a iniciar sesión.';
+  return 'No se pudo iniciar sesión: ' + (error && error.message ? error.message : 'verifica tus datos.');
+}
+
+function checkSupabaseAvailability() {
+  if (!window.fetch || !SUPABASE_URL || !SUPABASE_ANON_KEY) return Promise.resolve(false);
+  var controller = window.AbortController ? new AbortController() : null;
+  var timeout = controller ? setTimeout(function() { controller.abort(); }, 4500) : null;
+  var options = {
+    method: 'GET',
+    headers: { apikey: SUPABASE_ANON_KEY },
+    cache: 'no-store'
+  };
+  if (controller) options.signal = controller.signal;
+  return fetch(SUPABASE_URL.replace(/\/$/, '') + '/auth/v1/settings', options)
+    .then(function(response) { return response.status >= 200 && response.status < 500; })
+    .catch(function() { return false; })
+    .then(function(available) {
+      if (timeout) clearTimeout(timeout);
+      return available;
+    });
+}
+
+function updateSidebarAccount() {
+  var account = document.getElementById('sidebarAccount');
+  var avatar = document.getElementById('sidebarAccountAvatar');
+  var name = document.getElementById('sidebarAccountName');
+  var status = document.getElementById('sidebarAccountStatus');
+  var action = document.getElementById('btnSidebarAuth');
+  if (!account || !avatar || !name || !status || !action) return;
+
+  account.dataset.state = cloudUser ? 'connected' : cloudSyncUnavailable ? 'offline' : supabaseClient ? 'ready' : 'local';
+  action.classList.remove('is-logout');
+  if (cloudUser) {
+    var email = cloudUser.email || 'Cuenta conectada';
+    avatar.textContent = email.charAt(0).toUpperCase() || '✓';
+    name.textContent = email;
+    status.textContent = 'Sincronización activa';
+    action.textContent = 'Cerrar sesión';
+    action.setAttribute('aria-label', 'Cerrar sesión de ' + email);
+    action.classList.add('is-logout');
+  } else if (cloudSyncUnavailable) {
+    avatar.textContent = '☁';
+    name.textContent = 'Modo local';
+    status.textContent = 'Nube no disponible';
+    action.textContent = 'Reintentar conexión';
+    action.setAttribute('aria-label', 'Reintentar conexión con la nube');
+  } else if (supabaseClient) {
+    avatar.textContent = '☁';
+    name.textContent = 'Cuenta no conectada';
+    status.textContent = 'Sincronización disponible';
+    action.textContent = 'Iniciar sesión';
+    action.setAttribute('aria-label', 'Iniciar sesión');
+  } else {
+    avatar.textContent = '•';
+    name.textContent = 'Modo local';
+    status.textContent = 'Datos guardados aquí';
+    action.textContent = 'Iniciar sesión';
+    action.setAttribute('aria-label', 'Iniciar sesión');
+  }
+}
+
+function bindCloudAuthState() {
+  if (!supabaseClient || cloudAuthStateBound) return;
+  supabaseClient.auth.onAuthStateChange(function(event, session) {
+    if (event === 'SIGNED_IN' && session && !cloudUser) connectCloudUser(session.user);
+    if (event === 'SIGNED_OUT') {
+      cloudUser = null;
+      cloudSyncReady = false;
+      updateSidebarAccount();
+    }
+  });
+  cloudAuthStateBound = true;
+}
+
+function retryCloudSync() {
+  if (!window.supabase) {
+    disableCloudSync('Supabase no está disponible. La aplicación continuará en modo local.');
+    return Promise.resolve(false);
+  }
+  if (supabaseClient && !cloudSyncUnavailable) {
+    updateSidebarAccount();
+    return Promise.resolve(true);
+  }
+
+  supabaseClient = null;
+  cloudAuthStateBound = false;
+  cloudSyncUnavailable = false;
+  var message = document.getElementById('cloudAuthMessage');
+  if (message) message.textContent = 'Comprobando la conexión con la nube...';
+  updateSidebarAccount();
+
+  return checkSupabaseAvailability().then(function(available) {
+    if (!available) {
+      disableCloudSync('La sincronización en la nube no está disponible. Tus datos se guardan localmente en este dispositivo.');
+      return false;
+    }
+    try {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      bindCloudAuthState();
+      updateSidebarAccount();
+      if (message) message.textContent = 'Conexión disponible. Inicia sesión para sincronizar tus listas.';
+      return true;
+    } catch (error) {
+      disableCloudSync('No se pudo configurar la sincronización. La aplicación continuará en modo local.');
+      return false;
+    }
+  });
+}
+
+async function signOutCloudUser() {
+  var client = supabaseClient;
+  cloudUser = null;
+  cloudSyncReady = false;
+  updateSidebarAccount();
+  if (!client) return;
+  try {
+    var result = await client.auth.signOut();
+    if (result && result.error && isCloudNetworkError(result.error)) {
+      cloudSyncUnavailable = true;
+    }
+  } catch (error) {
+    if (isCloudNetworkError(error)) cloudSyncUnavailable = true;
+  }
+  updateSidebarAccount();
+}
+
+function handleSidebarAuth() {
+  closeSidebar();
+  if (cloudUser) {
+    signOutCloudUser();
+    return;
+  }
+  showCloudAuth();
+  var message = document.getElementById('cloudAuthMessage');
+  if (cloudSyncUnavailable || (!supabaseClient && !cloudInitPromise)) retryCloudSync();
+  else if (!supabaseClient && cloudInitPromise) {
+    if (message) message.textContent = 'Comprobando la conexión con la nube...';
+  } else if (message) {
+    message.textContent = 'Inicia sesión para acceder a tus listas desde cualquier dispositivo.';
+  }
+}
+
 async function connectCloudUser(user) {
   cloudUser = user;
   cloudSyncReady = true;
+  updateSidebarAccount();
   try {
     await loadDataFromCloud(user);
     hideCloudAuth();
     renderHome();
   } catch (error) {
     cloudSyncReady = false;
-    document.getElementById('cloudAuthMessage').textContent = 'No se pudo cargar la nube. Ejecuta primero el SQL de configuración de Supabase.';
-    console.error('Error de sincronización:', error);
+    cloudUser = null;
+    updateSidebarAccount();
+    var message = cloudErrorMessage(error, 'No se pudo cargar la nube. Ejecuta primero el SQL de configuración de Supabase.');
+    if (isCloudNetworkError(error)) disableCloudSync(message);
+    else {
+      document.getElementById('cloudAuthMessage').textContent = message;
+      showCloudAuth();
+    }
   }
 }
 
 function initCloudSync() {
-  if (!window.supabase) return;
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var form = document.getElementById('cloudAuthForm');
-  form.addEventListener('submit', async function(event) {
+  var registerButton = document.getElementById('cloudAuthRegister');
+  var continueButton = document.getElementById('cloudAuthContinue');
+  var message = document.getElementById('cloudAuthMessage');
+
+  updateSidebarAccount();
+  if (continueButton) continueButton.addEventListener('click', hideCloudAuth);
+
+  if (!window.supabase) {
+    hideCloudAuth();
+    return;
+  }
+
+  if (form) form.addEventListener('submit', async function(event) {
     event.preventDefault();
-    var message = document.getElementById('cloudAuthMessage');
-    message.textContent = 'Conectando...';
-    var result = await supabaseClient.auth.signInWithPassword({ email: document.getElementById('cloudAuthEmail').value.trim(), password: document.getElementById('cloudAuthPassword').value });
-    if (result.error) {
-      console.error('Supabase login:', result.error);
-      message.textContent = result.error.status === 401 ? 'Supabase rechazó la clave pública o las credenciales. Recarga la aplicación y verifica la URL y la clave anon.' : 'No se pudo iniciar sesión: ' + result.error.message;
+    if (!supabaseClient) {
+      message.textContent = cloudSyncUnavailable
+        ? 'La nube no está disponible. Puedes continuar usando el modo local.'
+        : 'Comprobando la conexión con la nube...';
+      return;
     }
-    else await connectCloudUser(result.data.user);
+    message.textContent = 'Conectando...';
+    try {
+      var result = await supabaseClient.auth.signInWithPassword({
+        email: document.getElementById('cloudAuthEmail').value.trim(),
+        password: document.getElementById('cloudAuthPassword').value
+      });
+      if (result.error) {
+        if (isCloudNetworkError(result.error)) {
+          disableCloudSync(cloudErrorMessage(result.error));
+          return;
+        }
+        message.textContent = result.error.status === 401 && /invalid login credentials|email not confirmed/i.test(result.error.message || '')
+          ? authErrorMessage(result.error)
+          : result.error.status === 401
+            ? 'Supabase rechazó la clave pública. Verifica que la URL y la clave pertenezcan al mismo proyecto.'
+            : authErrorMessage(result.error);
+      } else {
+        await connectCloudUser(result.data.user);
+      }
+    } catch (error) {
+      if (!isCloudNetworkError(error)) message.textContent = 'No se pudo iniciar sesión. Inténtalo nuevamente.';
+      else disableCloudSync(cloudErrorMessage(error));
+    }
   });
-  document.getElementById('cloudAuthRegister').addEventListener('click', async function() {
-    var message = document.getElementById('cloudAuthMessage');
+
+  if (registerButton) registerButton.addEventListener('click', async function() {
+    if (!supabaseClient) {
+      message.textContent = cloudSyncUnavailable
+        ? 'La nube no está disponible. Puedes continuar usando el modo local.'
+        : 'Comprobando la conexión con la nube...';
+      return;
+    }
     var email = document.getElementById('cloudAuthEmail').value.trim();
     var password = document.getElementById('cloudAuthPassword').value;
     if (!email || !password) {
@@ -264,29 +499,65 @@ function initCloudSync() {
     if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
       signupOptions.emailRedirectTo = window.location.origin + window.location.pathname;
     }
-    var result = await supabaseClient.auth.signUp({ email: email, password: password, options: signupOptions });
-    if (result.error) {
-      console.error('Supabase registro:', result.error);
-      message.textContent = result.error.status === 429 ? 'Supabase alcanzó el límite de correos. Espera unos minutos y revisa tu bandeja antes de volver a registrarte.' : result.error.status === 401 ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.' : 'No se pudo crear la cuenta: ' + result.error.message;
-    } else if (result.data.session) {
-      await connectCloudUser(result.data.user);
-    } else {
-      message.textContent = 'Cuenta creada. Revisa tu correo para confirmar la cuenta y luego inicia sesión.';
+    try {
+      var result = await supabaseClient.auth.signUp({ email: email, password: password, options: signupOptions });
+      if (result.error) {
+        if (isCloudNetworkError(result.error)) {
+          disableCloudSync(cloudErrorMessage(result.error));
+          return;
+        }
+        message.textContent = result.error.status === 429
+          ? 'Supabase alcanzó el límite de correos. Espera unos minutos y revisa tu bandeja antes de volver a registrarte.'
+          : result.error.status === 401
+            ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.'
+            : 'No se pudo crear la cuenta: ' + result.error.message;
+      } else if (result.data.session) {
+        await connectCloudUser(result.data.user);
+      } else {
+        message.textContent = 'Cuenta creada. Revisa tu correo para confirmar la cuenta y luego inicia sesión.';
+      }
+    } catch (error) {
+      if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+      else message.textContent = 'No se pudo crear la cuenta. Inténtalo nuevamente.';
     }
   });
-  document.getElementById('cloudAuthContinue').addEventListener('click', hideCloudAuth);
-  supabaseClient.auth.onAuthStateChange(function(event, session) {
-    if (event === 'SIGNED_IN' && session && !cloudUser) connectCloudUser(session.user);
-  });
-  var hashParams = new URLSearchParams(window.location.hash.substring(1));
-  if (hashParams.get('error')) {
-    var hashError = hashParams.get('error_description') || hashParams.get('error');
-    document.getElementById('cloudAuthMessage').textContent = 'No se pudo confirmar el correo: ' + hashError.replace(/\+/g, ' ');
-  }
-  loadPublicShare().then(function(isLoaded) {
-    if (isLoaded) return;
-    supabaseClient.auth.getSession().then(function(result) {
-      if (result.data.session) connectCloudUser(result.data.session.user);
+
+  cloudInitPromise = checkSupabaseAvailability().then(function(available) {
+    if (!available) {
+      disableCloudSync('La sincronización en la nube no está disponible. Tus datos se guardan localmente en este dispositivo.');
+      return false;
+    }
+
+    try {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (error) {
+      disableCloudSync('No se pudo configurar la sincronización. La aplicación continuará en modo local.');
+      return false;
+    }
+
+    bindCloudAuthState();
+    updateSidebarAccount();
+
+    var hashParams = new URLSearchParams(window.location.hash.substring(1));
+    if (hashParams.get('error')) {
+      var hashError = hashParams.get('error_description') || hashParams.get('error');
+      message.textContent = 'No se pudo confirmar el correo: ' + hashError.replace(/\+/g, ' ');
+    }
+
+    return loadPublicShare().then(function(isLoaded) {
+      if (isLoaded || !supabaseClient) return isLoaded;
+      return supabaseClient.auth.getSession().then(function(result) {
+        if (result.error) {
+          if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+          return false;
+        }
+        if (result.data.session) return connectCloudUser(result.data.session.user).then(function() { return true; });
+        return false;
+      });
+    }).catch(function(error) {
+      if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+      else message.textContent = 'No se pudo cargar la sesión de Supabase. Puedes continuar en modo local.';
+      return false;
     });
   });
 }
@@ -334,11 +605,17 @@ function sanitizePublicId(text) {
 function openSidebar() {
   document.getElementById('sidebar').classList.add('active');
   document.getElementById('sidebarOverlay').classList.add('active');
+  var menuButton = document.getElementById('btnMenu');
+  if (menuButton) menuButton.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('sidebar-open');
 }
 
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('active');
   document.getElementById('sidebarOverlay').classList.remove('active');
+  var menuButton = document.getElementById('btnMenu');
+  if (menuButton) menuButton.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('sidebar-open');
 }
 
 /* ===== NAVIGATION ===== */
@@ -708,7 +985,7 @@ function renderHome() {
       if (fSeries[i].cover) { fCover = fSeries[i].cover; break; }
     }
     html += '<div class="series-tile" data-fid="' + f.id + '">';
-    html += '<img src="' + (fCover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3C%2Fsvg%3E') + '" class="series-tile-cover" alt="' + esc(f.name) + '">';
+    html += '<img src="' + (fCover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="series-tile-cover" alt="' + esc(f.name) + '">';
     html += '<div class="folder-badge">&#128193; Carpeta</div>';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-folder" data-fid="' + f.id + '">&#9998;</div>';
@@ -735,7 +1012,7 @@ function renderHome() {
     }
 
     html += '<div class="series-tile" data-sid="' + s.id + '">';
-    html += '<img src="' + (cover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3Ctext%20x%3D%22150%22%20y%3D%22200%22%20text-anchor%3D%22middle%22%20fill%3D%22%23666%22%20font-size%3D%2216%22%3ESin%20portada%3C%2Ftext%3E%3C%2Fsvg%3E') + '" class="series-tile-cover" alt="' + esc(s.name) + '">';
+    html += '<img src="' + (cover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3Ctext%20x%3D%22150%22%20y%3D%22200%22%20text-anchor%3D%22middle%22%20fill%3D%22%23666%22%20font-size%3D%2216%22%3ESin%20portada%3C%2Ftext%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="series-tile-cover" alt="' + esc(s.name) + '">';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-series" data-sid="' + s.id + '">&#9998;</div>';
     html += '<div class="series-tile-action" data-action="public-series" data-sid="' + s.id + '" title="Publicar lista">&#128279;</div>';
@@ -855,7 +1132,7 @@ function renderSerieDetail(seriesId) {
     ctags += '<span class="ctag-add" data-cid="' + char.id + '">+</span>';
 
     charsHtml += '<div class="character-card">';
-    charsHtml += '<img src="' + (char.image || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%22%20height%3D%22100%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22100%22%20height%3D%22100%22%2F%3E%3C%2Fsvg%3E') + '" class="character-img" alt="' + esc(char.name) + '">';
+    charsHtml += '<img src="' + (char.image || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%22%20height%3D%22100%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22100%22%20height%3D%22100%22%2F%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="character-img" alt="' + esc(char.name) + '">';
     charsHtml += '<div class="char-actions">';
     charsHtml += '<div class="char-action" data-action="edit-char" data-cid="' + char.id + '">&#9998;</div>';
     charsHtml += '<div class="char-action" data-action="move-char" data-cid="' + char.id + '" title="Mover a otra lista">&#8644;</div>';
@@ -1230,7 +1507,7 @@ function renderItemPageMarkup(s, item, layout, isTemplate, isCompact) {
   }
   html += '<div class="serie-actions-bar">' + (isTemplate ? '' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
   html += '<section class="item-data-section' + (isTemplate ? ' template-information' : '') + '"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : ' auto-content-height') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
-  if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
+  if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img loading="lazy" decoding="async" src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
   return html;
 }
 
@@ -2503,6 +2780,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnMenu').addEventListener('click', openSidebar);
   document.getElementById('btnCloseSidebar').addEventListener('click', closeSidebar);
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
+  document.getElementById('btnSidebarAuth').addEventListener('click', handleSidebarAuth);
 
   document.getElementById('btnApiImport').addEventListener('click', function() {
     closeSidebar();
@@ -2526,6 +2804,12 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnAddSerie').addEventListener('click', function() { openModal('series'); });
   document.getElementById('btnAddFolder').addEventListener('click', createFolder);
   document.getElementById('appHomeTitle').addEventListener('click', function() { goHome(); });
+  document.getElementById('appHomeTitle').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      goHome();
+    }
+  });
   document.getElementById('homeSearch').addEventListener('input', renderHome);
   document.getElementById('btnCancel').addEventListener('click', closeModal);
   document.getElementById('btnSave').addEventListener('click', saveModal);
