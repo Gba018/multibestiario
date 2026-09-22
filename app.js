@@ -271,7 +271,7 @@ function checkSupabaseAvailability() {
   };
   if (controller) options.signal = controller.signal;
   return fetch(SUPABASE_URL.replace(/\/$/, '') + '/auth/v1/settings', options)
-    .then(function(response) { return response.ok; })
+    .then(function(response) { return response.status >= 200 && response.status < 500; })
     .catch(function() { return false; })
     .then(function(available) {
       if (timeout) clearTimeout(timeout);
