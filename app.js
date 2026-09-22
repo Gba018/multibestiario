@@ -8,6 +8,8 @@ var cloudUser = null;
 var cloudSyncTimer = null;
 var cloudSyncReady = false;
 var cloudSyncInProgress = false;
+var cloudSyncUnavailable = false;
+var cloudInitPromise = null;
 var isPublicView = false;
 
 /* ===== STATE ===== */
@@ -124,17 +126,24 @@ function scheduleCloudSave() {
 }
 
 async function saveDataToCloud() {
-  if (cloudSyncInProgress || !cloudSyncReady || !cloudUser) return;
+  if (cloudSyncInProgress || !cloudSyncReady || !cloudUser || !supabaseClient) return;
   cloudSyncInProgress = true;
-  var result = await supabaseClient.from('user_data').upsert({ user_id: cloudUser.id, data: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-  cloudSyncInProgress = false;
-  if (result.error) console.error('No se pudo sincronizar con Supabase:', result.error.message);
-  if (!result.error) {
+  try {
+    var result = await supabaseClient.from('user_data').upsert({ user_id: cloudUser.id, data: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (result.error) {
+      if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+      return;
+    }
     var shares = await supabaseClient.from('public_shares').select('id,entity_type,entity_id').eq('owner_id', cloudUser.id).eq('is_public', true);
     if (!shares.error && shares.data) shares.data.forEach(function(share) {
       var snapshot = publicSnapshot(share.entity_type, share.entity_id);
       if (snapshot) supabaseClient.from('public_shares').update({ snapshot: snapshot, updated_at: new Date().toISOString() }).eq('id', share.id);
     });
+    if (shares.error && isCloudNetworkError(shares.error)) disableCloudSync(cloudErrorMessage(shares.error));
+  } catch (error) {
+    if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+  } finally {
+    cloudSyncInProgress = false;
   }
 }
 
@@ -176,7 +185,11 @@ async function loadPublicShare() {
   var token = new URLSearchParams(window.location.search).get('public');
   if (!token || !supabaseClient) return false;
   var result = await supabaseClient.from('public_shares').select('snapshot').eq('share_token', token).eq('is_public', true).maybeSingle();
-  if (result.error || !result.data) return false;
+  if (result.error) {
+    if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+    return false;
+  }
+  if (!result.data) return false;
   data = result.data.snapshot;
   if (!data.folders) data.folders = [];
   if (!data.allTags) data.allTags = [];
@@ -218,6 +231,54 @@ function hideCloudAuth() {
   if (overlay) overlay.classList.add('hidden');
 }
 
+function showCloudAuth() {
+  var overlay = document.getElementById('cloudAuthOverlay');
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function isCloudNetworkError(error) {
+  var message = String(error && (error.message || error.name) || error || '').toLowerCase();
+  return !message || /failed to fetch|network|fetch|dns|name_not_resolved|connection|offline|timeout|abort/.test(message) || (error && error.status === 0);
+}
+
+function disableCloudSync(message) {
+  cloudSyncReady = false;
+  cloudSyncInProgress = false;
+  cloudUser = null;
+  cloudSyncUnavailable = true;
+  clearTimeout(cloudSyncTimer);
+  document.body.classList.add('cloud-offline');
+  var authMessage = document.getElementById('cloudAuthMessage');
+  if (authMessage && message) authMessage.textContent = message;
+  // La nube es opcional: si Supabase no resuelve, la aplicación continúa
+  // usando localStorage en lugar de bloquear la pantalla o reintentar sin fin.
+  hideCloudAuth();
+}
+
+function cloudErrorMessage(error, fallback) {
+  if (isCloudNetworkError(error)) return 'La sincronización en la nube no está disponible. Tus datos se guardan localmente en este dispositivo.';
+  return fallback || 'No se pudo conectar con Supabase. Verifica la URL, la clave pública y la configuración del proyecto.';
+}
+
+function checkSupabaseAvailability() {
+  if (!window.fetch || !SUPABASE_URL || !SUPABASE_ANON_KEY) return Promise.resolve(false);
+  var controller = window.AbortController ? new AbortController() : null;
+  var timeout = controller ? setTimeout(function() { controller.abort(); }, 4500) : null;
+  var options = {
+    method: 'GET',
+    headers: { apikey: SUPABASE_ANON_KEY },
+    cache: 'no-store'
+  };
+  if (controller) options.signal = controller.signal;
+  return fetch(SUPABASE_URL.replace(/\/$/, '') + '/auth/v1/settings', options)
+    .then(function(response) { return response.ok; })
+    .catch(function() { return false; })
+    .then(function(available) {
+      if (timeout) clearTimeout(timeout);
+      return available;
+    });
+}
+
 async function connectCloudUser(user) {
   cloudUser = user;
   cloudSyncReady = true;
@@ -227,28 +288,66 @@ async function connectCloudUser(user) {
     renderHome();
   } catch (error) {
     cloudSyncReady = false;
-    document.getElementById('cloudAuthMessage').textContent = 'No se pudo cargar la nube. Ejecuta primero el SQL de configuración de Supabase.';
-    console.error('Error de sincronización:', error);
+    var message = cloudErrorMessage(error, 'No se pudo cargar la nube. Ejecuta primero el SQL de configuración de Supabase.');
+    if (isCloudNetworkError(error)) disableCloudSync(message);
+    else {
+      document.getElementById('cloudAuthMessage').textContent = message;
+      showCloudAuth();
+    }
   }
 }
 
 function initCloudSync() {
-  if (!window.supabase) return;
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   var form = document.getElementById('cloudAuthForm');
-  form.addEventListener('submit', async function(event) {
+  var registerButton = document.getElementById('cloudAuthRegister');
+  var continueButton = document.getElementById('cloudAuthContinue');
+  var message = document.getElementById('cloudAuthMessage');
+
+  if (continueButton) continueButton.addEventListener('click', hideCloudAuth);
+
+  if (!window.supabase) {
+    hideCloudAuth();
+    return;
+  }
+
+  if (form) form.addEventListener('submit', async function(event) {
     event.preventDefault();
-    var message = document.getElementById('cloudAuthMessage');
-    message.textContent = 'Conectando...';
-    var result = await supabaseClient.auth.signInWithPassword({ email: document.getElementById('cloudAuthEmail').value.trim(), password: document.getElementById('cloudAuthPassword').value });
-    if (result.error) {
-      console.error('Supabase login:', result.error);
-      message.textContent = result.error.status === 401 ? 'Supabase rechazó la clave pública o las credenciales. Recarga la aplicación y verifica la URL y la clave anon.' : 'No se pudo iniciar sesión: ' + result.error.message;
+    if (!supabaseClient) {
+      message.textContent = cloudSyncUnavailable
+        ? 'La nube no está disponible. Puedes continuar usando el modo local.'
+        : 'Comprobando la conexión con la nube...';
+      return;
     }
-    else await connectCloudUser(result.data.user);
+    message.textContent = 'Conectando...';
+    try {
+      var result = await supabaseClient.auth.signInWithPassword({
+        email: document.getElementById('cloudAuthEmail').value.trim(),
+        password: document.getElementById('cloudAuthPassword').value
+      });
+      if (result.error) {
+        if (isCloudNetworkError(result.error)) {
+          disableCloudSync(cloudErrorMessage(result.error));
+          return;
+        }
+        message.textContent = result.error.status === 401
+          ? 'Supabase rechazó la clave pública o las credenciales. Verifica la URL y la clave anon.'
+          : 'No se pudo iniciar sesión: ' + result.error.message;
+      } else {
+        await connectCloudUser(result.data.user);
+      }
+    } catch (error) {
+      if (!isCloudNetworkError(error)) message.textContent = 'No se pudo iniciar sesión. Inténtalo nuevamente.';
+      else disableCloudSync(cloudErrorMessage(error));
+    }
   });
-  document.getElementById('cloudAuthRegister').addEventListener('click', async function() {
-    var message = document.getElementById('cloudAuthMessage');
+
+  if (registerButton) registerButton.addEventListener('click', async function() {
+    if (!supabaseClient) {
+      message.textContent = cloudSyncUnavailable
+        ? 'La nube no está disponible. Puedes continuar usando el modo local.'
+        : 'Comprobando la conexión con la nube...';
+      return;
+    }
     var email = document.getElementById('cloudAuthEmail').value.trim();
     var password = document.getElementById('cloudAuthPassword').value;
     if (!email || !password) {
@@ -264,29 +363,66 @@ function initCloudSync() {
     if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
       signupOptions.emailRedirectTo = window.location.origin + window.location.pathname;
     }
-    var result = await supabaseClient.auth.signUp({ email: email, password: password, options: signupOptions });
-    if (result.error) {
-      console.error('Supabase registro:', result.error);
-      message.textContent = result.error.status === 429 ? 'Supabase alcanzó el límite de correos. Espera unos minutos y revisa tu bandeja antes de volver a registrarte.' : result.error.status === 401 ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.' : 'No se pudo crear la cuenta: ' + result.error.message;
-    } else if (result.data.session) {
-      await connectCloudUser(result.data.user);
-    } else {
-      message.textContent = 'Cuenta creada. Revisa tu correo para confirmar la cuenta y luego inicia sesión.';
+    try {
+      var result = await supabaseClient.auth.signUp({ email: email, password: password, options: signupOptions });
+      if (result.error) {
+        if (isCloudNetworkError(result.error)) {
+          disableCloudSync(cloudErrorMessage(result.error));
+          return;
+        }
+        message.textContent = result.error.status === 429
+          ? 'Supabase alcanzó el límite de correos. Espera unos minutos y revisa tu bandeja antes de volver a registrarte.'
+          : result.error.status === 401
+            ? 'Supabase rechazó la clave pública. Copia nuevamente la clave anon desde Project Settings → API.'
+            : 'No se pudo crear la cuenta: ' + result.error.message;
+      } else if (result.data.session) {
+        await connectCloudUser(result.data.user);
+      } else {
+        message.textContent = 'Cuenta creada. Revisa tu correo para confirmar la cuenta y luego inicia sesión.';
+      }
+    } catch (error) {
+      if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+      else message.textContent = 'No se pudo crear la cuenta. Inténtalo nuevamente.';
     }
   });
-  document.getElementById('cloudAuthContinue').addEventListener('click', hideCloudAuth);
-  supabaseClient.auth.onAuthStateChange(function(event, session) {
-    if (event === 'SIGNED_IN' && session && !cloudUser) connectCloudUser(session.user);
-  });
-  var hashParams = new URLSearchParams(window.location.hash.substring(1));
-  if (hashParams.get('error')) {
-    var hashError = hashParams.get('error_description') || hashParams.get('error');
-    document.getElementById('cloudAuthMessage').textContent = 'No se pudo confirmar el correo: ' + hashError.replace(/\+/g, ' ');
-  }
-  loadPublicShare().then(function(isLoaded) {
-    if (isLoaded) return;
-    supabaseClient.auth.getSession().then(function(result) {
-      if (result.data.session) connectCloudUser(result.data.session.user);
+
+  cloudInitPromise = checkSupabaseAvailability().then(function(available) {
+    if (!available) {
+      disableCloudSync('La sincronización en la nube no está disponible. Tus datos se guardan localmente en este dispositivo.');
+      return false;
+    }
+
+    try {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (error) {
+      disableCloudSync('No se pudo configurar la sincronización. La aplicación continuará en modo local.');
+      return false;
+    }
+
+    supabaseClient.auth.onAuthStateChange(function(event, session) {
+      if (event === 'SIGNED_IN' && session && !cloudUser) connectCloudUser(session.user);
+    });
+
+    var hashParams = new URLSearchParams(window.location.hash.substring(1));
+    if (hashParams.get('error')) {
+      var hashError = hashParams.get('error_description') || hashParams.get('error');
+      message.textContent = 'No se pudo confirmar el correo: ' + hashError.replace(/\+/g, ' ');
+    }
+
+    return loadPublicShare().then(function(isLoaded) {
+      if (isLoaded) return true;
+      return supabaseClient.auth.getSession().then(function(result) {
+        if (result.error) {
+          if (isCloudNetworkError(result.error)) disableCloudSync(cloudErrorMessage(result.error));
+          return false;
+        }
+        if (result.data.session) return connectCloudUser(result.data.session.user).then(function() { return true; });
+        return false;
+      });
+    }).catch(function(error) {
+      if (isCloudNetworkError(error)) disableCloudSync(cloudErrorMessage(error));
+      else message.textContent = 'No se pudo cargar la sesión de Supabase. Puedes continuar en modo local.';
+      return false;
     });
   });
 }
