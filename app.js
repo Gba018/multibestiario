@@ -1,7 +1,7 @@
 /* ===== CONFIG ===== */
 var CLOUDINARY_CLOUD_NAME = 'rdhjpcli';
 var CLOUDINARY_UPLOAD_PRESET = 'multibestiario';
-var SUPABASE_URL = 'https://qdhqdmurypaiktehnwjr.supabase.co';
+var SUPABASE_URL = 'https://zutfryjlzmzvzrmlbbzr.supabase.co';
 var SUPABASE_ANON_KEY = 'sb_publishable_tj3GLsRnyoZd1G15h7bTyg_P6b05xxg';
 var supabaseClient = null;
 var cloudUser = null;
