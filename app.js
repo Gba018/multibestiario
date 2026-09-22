@@ -334,11 +334,17 @@ function sanitizePublicId(text) {
 function openSidebar() {
   document.getElementById('sidebar').classList.add('active');
   document.getElementById('sidebarOverlay').classList.add('active');
+  var menuButton = document.getElementById('btnMenu');
+  if (menuButton) menuButton.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('sidebar-open');
 }
 
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('active');
   document.getElementById('sidebarOverlay').classList.remove('active');
+  var menuButton = document.getElementById('btnMenu');
+  if (menuButton) menuButton.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('sidebar-open');
 }
 
 /* ===== NAVIGATION ===== */
@@ -708,7 +714,7 @@ function renderHome() {
       if (fSeries[i].cover) { fCover = fSeries[i].cover; break; }
     }
     html += '<div class="series-tile" data-fid="' + f.id + '">';
-    html += '<img src="' + (fCover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3C%2Fsvg%3E') + '" class="series-tile-cover" alt="' + esc(f.name) + '">';
+    html += '<img src="' + (fCover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="series-tile-cover" alt="' + esc(f.name) + '">';
     html += '<div class="folder-badge">&#128193; Carpeta</div>';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-folder" data-fid="' + f.id + '">&#9998;</div>';
@@ -735,7 +741,7 @@ function renderHome() {
     }
 
     html += '<div class="series-tile" data-sid="' + s.id + '">';
-    html += '<img src="' + (cover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3Ctext%20x%3D%22150%22%20y%3D%22200%22%20text-anchor%3D%22middle%22%20fill%3D%22%23666%22%20font-size%3D%2216%22%3ESin%20portada%3C%2Ftext%3E%3C%2Fsvg%3E') + '" class="series-tile-cover" alt="' + esc(s.name) + '">';
+    html += '<img src="' + (cover || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22400%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22300%22%20height%3D%22400%22%2F%3E%3Ctext%20x%3D%22150%22%20y%3D%22200%22%20text-anchor%3D%22middle%22%20fill%3D%22%23666%22%20font-size%3D%2216%22%3ESin%20portada%3C%2Ftext%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="series-tile-cover" alt="' + esc(s.name) + '">';
     html += '<div class="series-tile-actions">';
     html += '<div class="series-tile-action" data-action="edit-series" data-sid="' + s.id + '">&#9998;</div>';
     html += '<div class="series-tile-action" data-action="public-series" data-sid="' + s.id + '" title="Publicar lista">&#128279;</div>';
@@ -855,7 +861,7 @@ function renderSerieDetail(seriesId) {
     ctags += '<span class="ctag-add" data-cid="' + char.id + '">+</span>';
 
     charsHtml += '<div class="character-card">';
-    charsHtml += '<img src="' + (char.image || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%22%20height%3D%22100%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22100%22%20height%3D%22100%22%2F%3E%3C%2Fsvg%3E') + '" class="character-img" alt="' + esc(char.name) + '">';
+    charsHtml += '<img src="' + (char.image || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%22%20height%3D%22100%22%3E%3Crect%20fill%3D%22%23242424%22%20width%3D%22100%22%20height%3D%22100%22%2F%3E%3C%2Fsvg%3E') + '" loading="lazy" decoding="async" class="character-img" alt="' + esc(char.name) + '">';
     charsHtml += '<div class="char-actions">';
     charsHtml += '<div class="char-action" data-action="edit-char" data-cid="' + char.id + '">&#9998;</div>';
     charsHtml += '<div class="char-action" data-action="move-char" data-cid="' + char.id + '" title="Mover a otra lista">&#8644;</div>';
@@ -1230,7 +1236,7 @@ function renderItemPageMarkup(s, item, layout, isTemplate, isCompact) {
   }
   html += '<div class="serie-actions-bar">' + (isTemplate ? '' : '<button class="btn btn-ghost" id="btnEditItem">&#9998; Editar item</button><button class="btn btn-ghost" id="btnChangeItemCover">&#128444; Cambiar portada</button><button class="btn btn-ghost" id="btnMoveItem">&#8644; Mover a lista</button><button class="btn btn-ghost" id="btnToggleItemView">' + (isCompact ? '&#9634; Vista completa' : '&#9633; Vista minimizada') + '</button><button class="btn btn-ghost btn-danger" id="btnDelItem">&#128465; Eliminar</button>' + nav + '</div>');
   html += '<section class="item-data-section' + (isTemplate ? ' template-information' : '') + '"><h3>Información</h3><div class="item-layout free-layout' + (isTemplate ? ' template-grid-visible' : ' auto-content-height') + '" style="--canvas-height:' + (layout.canvasHeight || 640) + 'px">' + rows + '</div></section>';
-  if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
+  if (images.length > 1) html += '<section class="item-gallery"><h3>Imágenes</h3><div>' + images.map(function(image) { return '<img loading="lazy" decoding="async" src="' + esc(image) + '" alt="' + esc(item.name) + '">'; }).join('') + '</div></section>';
   return html;
 }
 
@@ -2526,6 +2532,12 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btnAddSerie').addEventListener('click', function() { openModal('series'); });
   document.getElementById('btnAddFolder').addEventListener('click', createFolder);
   document.getElementById('appHomeTitle').addEventListener('click', function() { goHome(); });
+  document.getElementById('appHomeTitle').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      goHome();
+    }
+  });
   document.getElementById('homeSearch').addEventListener('input', renderHome);
   document.getElementById('btnCancel').addEventListener('click', closeModal);
   document.getElementById('btnSave').addEventListener('click', saveModal);
